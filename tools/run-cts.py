@@ -50,6 +50,7 @@ TITLE = "PPSA99015"
 CTS_FORK = ROOT.parent / "PS5_VK-GL-CTS"
 MUSTPASS = CTS_FORK / "external/vulkancts/mustpass/main/vk-default"
 CASE_LINE = re.compile(r"\[cts\] Test case '([^']+)'\.\.")
+CRASH_LINE = re.compile(r"\[cts\] Crash in '([^']*)'")
 GOOD = ("Pass", "NotSupported", "QualityWarning", "CompatibilityWarning", "Waiver")
 
 
@@ -108,7 +109,7 @@ def run_once(settings, args, selection, caselist=None):
     files["args.txt"] = "\n".join(flags) + "\n"
     upload(settings, files)
 
-    state = {"case": None}
+    state = {"case": None, "crashed": None}
 
     def on_line(line):
         match = CASE_LINE.search(line)
@@ -116,6 +117,9 @@ def run_once(settings, args, selection, caselist=None):
             state["case"] = match.group(1)
             if args.verbose:
                 print(f"  {match.group(1)}", flush=True)
+        match = CRASH_LINE.search(line)
+        if match and match.group(1):
+            state["crashed"] = match.group(1)
 
     # klog can lag or drop lines under load; the log the CTS writes on the
     # console is the other sign of progress.
@@ -137,7 +141,9 @@ def run_once(settings, args, selection, caselist=None):
         elf=args.elf, on_line=on_line, stall=args.stall, progressing=progressing, activity=r"\[cts")
     qpa = fetched[0] if fetched else None
     text = qpa.read_text(errors="replace") if qpa and qpa.exists() else ""
-    return ended, parse_qpa(text), state["case"], klog
+    # The title's own crash line names the case; klog's last case line is the
+    # fallback (it can drop lines under load).
+    return ended, parse_qpa(text), state["crashed"] or state["case"], klog
 
 
 def summarise(counts):
@@ -218,10 +224,12 @@ def batch_run(settings, args, cases):
                     terminated |= detail == "terminated"
             # A case the title logged as Crash or Timeout is what ended the run.
             if ended != "finished" and not terminated:
-                # The case that ended the run: the one the log left open, else
-                # the last one klog saw start, else the first with no result,
-                # so every launch settles at least one case.
-                culprit = next((c for c in (unfinished, running) if c in in_batch and c not in done), None)
+                # The case that ended the run: the one the title's crash line or
+                # klog last named, else the one the log left open (with the log
+                # not flushed per write, that is only where the file was cut),
+                # else the first with no result, so every launch settles at
+                # least one case.
+                culprit = next((c for c in (running, unfinished) if c in in_batch and c not in done), None)
                 if culprit is None:
                     culprit = next((c for c in batch if c not in done), None)
                 if culprit is not None:
