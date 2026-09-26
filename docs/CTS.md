@@ -144,16 +144,19 @@ reassembled log and the driver digest committed together.
 | What | Value |
 | --- | --- |
 | Upstream | [KhronosGroup/VK-GL-CTS](https://github.com/KhronosGroup/VK-GL-CTS) |
-| Tag | `vulkan-cts-1.4.5.3` |
-| Commit | `b17cf9b3863c44aea6f5e37d654d729f56de12ed` |
+| Tag | `vulkan-cts-1.4.6.2` |
+| Commit | `f6a29701220f34dd1407513bfe80d74ca7b392ce` |
 | License | Apache-2.0 |
 
 The target is the Vulkan 1.4 claim of the RADV port (route B,
-[VULKAN_1_4_PLAN.md](VULKAN_1_4_PLAN.md)). This is the release Mesa 26.2's RADV
-reports its conformance against (`conformanceVersion` 1.4.5.3), so a console
-result and Mesa's own CI expectations for the same family
-(`src/amd/ci/radv-navi21-*.txt`) are read against one list. The earlier 1.0 pin,
-`vulkan-cts-1.3.8.4`, is in the history and its results in the phase logs.
+[VULKAN_1_4_PLAN.md](VULKAN_1_4_PLAN.md)). A conformance claim is made against a
+current CTS release, and 1.4.6.2 (August 2026) is the newest. It is also the
+first I tried that knows every extension Mesa 26.2's RADV exposes: under
+1.4.5.3, the release that RADV's `conformanceVersion` names,
+`dEQP-VK.info.device_extensions` failed on `VK_KHR_device_address_commands`.
+RADV keeps reporting 1.4.5.3 until a run against 1.4.6.2 passes; the claim then
+names 1.4.6.2. The earlier pins, `vulkan-cts-1.3.8.4` and `vulkan-cts-1.4.5.3`,
+are in the history and their results in the phase logs.
 
 The checkout is `tools/fetch-vk-gl-cts.sh`: it clones the tag shallow into
 `.deps/work/vk-gl-cts-1.4` (moved by `PS5VK_CTS_DIR`), refuses a checkout that is not
@@ -187,7 +190,7 @@ the selection is decided. The first runs and their failures are in
 
 `deqp-vk` runs on the console as the title PPSA99015, with RADV and its PS5
 winsys linked in. The CTS side is my fork `PS5_VK-GL-CTS` (branch `ps5-port`,
-based on the pinned commit): its `DEQP_TARGET=ps5` platform makes the linked
+the pinned commit plus the PS5 target and build fixes): its `DEQP_TARGET=ps5` platform makes the linked
 driver's `vk_icdGetInstanceProcAddr` the whole loader, reads the arguments from
 `/app0/cts/args.txt` and mirrors every line the CTS prints to klog.
 

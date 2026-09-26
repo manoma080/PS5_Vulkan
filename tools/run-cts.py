@@ -6,23 +6,34 @@
 
 The CTS title (tools/build-cts-title.sh) reads its arguments from
 /app0/cts/args.txt. This writes that file for a case pattern (--case) or a
-case list (--caselist, uploaded as /app0/cts/caselist.txt), with the standard
-flags (the log beside the title, images and shader sources not logged, the
-log not flushed after every write: on the console that made a 322-message case
-take 11.5 s instead of 17 ms), runs
-the title through tools/run-title.py, and reads the per-case lines the
-platform mirrors to klog: a count by status, every case that failed, and the
-case that was running when the title crashed. The QPA log is fetched as well.
+case list (uploaded as /app0/cts/caselist.txt), runs the title through
+tools/run-title.py and reads the QPA log it fetches back.
 
-Exit status: 0 when the run ended with no failure, 1 when cases failed, 3 when
-the run did not end (a crash or a hang).
+The flags are the standard ones plus these for the console: the log is not
+flushed after every write (a write() to the console's storage costs about
+3.3 ms, which made a 322-message case take 11.5 s instead of 17 ms); the CTS's
+own crash handler is off, because the title's platform reports a crash itself
+(the case logged as Crash, the log flushed, the fault and a stack scan in
+klog); and the CTS's watchdog is on, so a case that hangs is logged as
+Timeout.
+
+With --mustpass (groups of the pinned mustpass list) or --caselist, the cases
+run in batches, and a batch that ends early (a crash, a hang, the title
+exiting) is resumed after the case that ended it. Every result goes to
+build/cts-runs/<run>/results.tsv as it is read, so --run with the same name
+resumes an interrupted run.
+
+Exit status: 0 when every case passed or is not supported, 1 when a case
+failed, 3 when a single run (--case) did not end on its own.
 """
 
 import argparse
 import collections
+import datetime
 import io
 import re
 import sys
+import time
 from ftplib import FTP
 from pathlib import Path
 
@@ -34,112 +45,240 @@ _spec = importlib.util.spec_from_file_location("run_title", Path(__file__).resol
 run_title_module = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(run_title_module)
 
+ROOT = Path(__file__).resolve().parent.parent
 TITLE = "PPSA99015"
-CASE = re.compile(r"\[cts\] Test case '([^']+)'\.\.")
-STATUS = re.compile(r"\[cts\]\s+(Pass|Fail|NotSupported|QualityWarning|CompatibilityWarning|ResourceError|"
-                    r"InternalError|Crash|Timeout|Waiver)\b\s*(.*)")
+CTS_FORK = ROOT.parent / "PS5_VK-GL-CTS"
+MUSTPASS = CTS_FORK / "external/vulkancts/mustpass/main/vk-default"
+CASE_LINE = re.compile(r"\[cts\] Test case '([^']+)'\.\.")
+GOOD = ("Pass", "NotSupported", "QualityWarning", "CompatibilityWarning", "Waiver")
+
+
+def ftp_session(settings):
+    ftp = FTP()
+    ftp.connect(settings["host"], settings["ftp_port"], timeout=30)
+    ftp.login(settings["ftp_user"], settings["ftp_password"] or "codex")
+    return ftp
 
 
 def upload(settings, files):
-    with FTP() as ftp:
-        ftp.connect(settings["host"], settings["ftp_port"], timeout=30)
-        ftp.login(settings["ftp_user"], settings["ftp_password"] or "codex")
+    with ftp_session(settings) as ftp:
         for name, text in files.items():
             ftp.storbinary(f"STOR /data/homebrew/{TITLE}/cts/{name}", io.BytesIO(text.encode()))
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    selection = parser.add_mutually_exclusive_group(required=True)
-    selection.add_argument("--case", help="a case pattern, as --deqp-case takes it")
-    selection.add_argument("--caselist", help="a file of case names, one a line")
-    parser.add_argument("--timeout", type=float, default=14400.0, help="watchdog for the whole run, seconds")
-    parser.add_argument("--stall", type=float, default=90.0,
-                        help="seconds of silence (klog quiet, the log not growing) that end the run")
-    parser.add_argument("--elf", default="build/cts/llvm-pie.elf", help="the linked ELF, to symbolise a crash")
-    parser.add_argument("--extra", action="append", default=[], help="another deqp argument")
-    parser.add_argument("--log-flush", choices=("enable", "disable"), default="disable",
-                        help="flush the log after every write (--deqp-log-flush); each flush to the "
-                             "console's storage costs milliseconds, so it is off unless asked for")
-    parser.add_argument("--verbose", action="store_true", help="print every case as it ends")
-    args = parser.parse_args()
+def parse_qpa(text):
+    """The cases a QPA log holds, in order: (name, status, detail); a case
+    whose result was never written has the status None."""
+    cases = []
+    for block in re.split(r"\n#beginTestCaseResult ", "\n" + text)[1:]:
+        name, _, body = block.partition("\n")
+        terminated = re.search(r"#terminateTestCaseResult (\w+)", body)
+        status = re.search(r'StatusCode="(\w+)">([^<]*)<', body)
+        if terminated:
+            cases.append((name.strip(), terminated.group(1), "terminated"))
+        elif "#endTestCaseResult" in body and status:
+            cases.append((name.strip(), status.group(1), status.group(2).strip()))
+        else:
+            cases.append((name.strip(), None, ""))
+    return cases
 
-    settings = ps5_console.load_settings()
+
+def run_once(settings, args, selection, caselist=None):
+    """One launch of the title. Returns how the run ended, its cases from the
+    QPA log, the last case klog saw start, and the klog file."""
     flags = [
         "--deqp-log-filename=/app0/cts/TestResults.qpa",
         "--deqp-archive-dir=/app0/cts",
-        "--deqp-log-images=disable",
+        f"--deqp-log-images={args.log_images}",
         "--deqp-log-shader-sources=disable",
         "--deqp-shadercache=disable",
         f"--deqp-log-flush={args.log_flush}",
+        # The title reports a crash itself (the CTS's handler hung on the
+        # console): the case is logged as Crash and the fault goes to klog.
+        "--deqp-crashhandler=disable",
+        "--deqp-watchdog=enable",
     ]
     files = {}
-    if args.case:
-        flags.append(f"--deqp-case={args.case}")
-    else:
-        files["caselist.txt"] = Path(args.caselist).read_text()
+    if caselist is not None:
+        files["caselist.txt"] = "\n".join(caselist) + "\n"
         flags.append("--deqp-caselist-file=/app0/cts/caselist.txt")
+    else:
+        flags.append(f"--deqp-case={selection}")
     flags += args.extra
     files["args.txt"] = "\n".join(flags) + "\n"
     upload(settings, files)
 
-    counts = collections.Counter()
-    failures = []
-    state = {"case": None, "status_seen": True}
+    state = {"case": None}
 
     def on_line(line):
-        match = CASE.search(line)
+        match = CASE_LINE.search(line)
         if match:
             state["case"] = match.group(1)
-            state["status_seen"] = False
-            return
-        match = STATUS.search(line)
-        if match and state["case"] and not state["status_seen"]:
-            status, detail = match.group(1), match.group(2).strip()
-            counts[status] += 1
-            state["status_seen"] = True
-            if status not in ("Pass", "NotSupported"):
-                failures.append((state["case"], status, detail))
-            if args.verbose or status not in ("Pass", "NotSupported"):
-                print(f"  {status:<14} {state['case']}  {detail}", flush=True)
+            if args.verbose:
+                print(f"  {match.group(1)}", flush=True)
 
     # klog can lag or drop lines under load; the log the CTS writes on the
     # console is the other sign of progress.
     qpa_size = {"bytes": -1}
 
     def progressing():
-        with FTP() as ftp:
-            ftp.connect(settings["host"], settings["ftp_port"], timeout=30)
-            ftp.login(settings["ftp_user"], settings["ftp_password"] or "codex")
+        with ftp_session(settings) as ftp:
             ftp.voidcmd("TYPE I")
             size = ftp.size(f"/data/homebrew/{TITLE}/cts/TestResults.qpa") or 0
         grew = size > qpa_size["bytes"]
         qpa_size["bytes"] = size
         return grew
 
-    ended, output, _ = run_title_module.run_title(
-        TITLE, r"\[cts\] run ends", args.timeout, fetch=["cts/TestResults.qpa"],
-        elf=args.elf, on_line=on_line, stall=args.stall, progressing=progressing)
-    # The log the CTS wrote is the record: klog can drop lines under load.
-    qpa = output.with_name(output.stem + "-cts_TestResults.qpa")
-    text = qpa.read_text(errors="replace") if qpa.exists() else ""
-    results = re.findall(r"#beginTestCaseResult (\S+)(.*?)(?=#beginTestCaseResult|\Z)", text, re.S)
+    output = None
+    if args.klog_dir:
+        output = str(Path(args.klog_dir) / f"{TITLE}-{datetime.datetime.now():%Y%m%d-%H%M%S}.log")
+    ended, klog, fetched = run_title_module.run_title(
+        TITLE, r"\[cts\] run ends", args.timeout, output=output, fetch=["cts/TestResults.qpa"],
+        elf=args.elf, on_line=on_line, stall=args.stall, progressing=progressing, activity=r"\[cts")
+    qpa = fetched[0] if fetched else None
+    text = qpa.read_text(errors="replace") if qpa and qpa.exists() else ""
+    return ended, parse_qpa(text), state["case"], klog
+
+
+def summarise(counts):
+    return "  ".join(f"{k}={v}" for k, v in sorted(counts.items()))
+
+
+def single_run(settings, args):
+    ended, cases, running, _ = run_once(settings, args, args.case)
     counts = collections.Counter()
     unfinished = None
-    for name, body in results:
-        status = re.search(r'StatusCode="(\w+)"', body)
-        if "#endTestCaseResult" not in body or not status:
+    for name, status, detail in cases:
+        if status is None:
             unfinished = name
             continue
-        counts[status.group(1)] += 1
-        if status.group(1) not in ("Pass", "NotSupported"):
-            detail = re.search(r'StatusCode="\w+">([^<]*)<', body)
-            print(f"  {status.group(1):<14} {name}  {detail.group(1) if detail else ''}")
-    print(f"cases: {sum(counts.values())}  " + "  ".join(f"{k}={v}" for k, v in sorted(counts.items())))
+        counts[status] += 1
+        if status not in GOOD or args.verbose:
+            print(f"  {status:<14} {name}  {detail}")
+    print(f"cases: {sum(counts.values())}  {summarise(counts)}")
     if ended != "finished":
-        print(f"the run {ended}" + (f" in {unfinished}" if unfinished else ""))
+        culprit = unfinished or running
+        print(f"the run {ended}" + (f" in {culprit}" if culprit else ""))
         return 3
-    return 1 if any(k not in ("Pass", "NotSupported") for k in counts) else 0
+    return 0 if all(k in GOOD for k in counts) else 1
+
+
+def mustpass_cases(groups):
+    cases = []
+    for group in groups:
+        path = MUSTPASS / group
+        files = sorted(path.rglob("*.txt")) if path.is_dir() else [MUSTPASS / f"{group}.txt"]
+        for file in files:
+            if not file.exists():
+                raise SystemExit(f"no mustpass list {file}")
+            cases += [line.strip() for line in file.read_text().splitlines() if line.strip()]
+    return cases
+
+
+def batch_run(settings, args, cases):
+    run_dir = ROOT / "build" / "cts-runs" / args.run
+    run_dir.mkdir(parents=True, exist_ok=True)
+    results_path = run_dir / "results.tsv"
+    done = {}
+    if results_path.exists():
+        for line in results_path.read_text().splitlines():
+            name, status = (line.split("\t") + [""])[:2]
+            done[name] = status
+    args.klog_dir = str(run_dir / "klog")
+    Path(args.klog_dir).mkdir(exist_ok=True)
+
+    wanted = set(cases)
+    pending = [c for c in cases if c not in done]
+    print(f"run {args.run}: {len(cases)} cases, {len(cases) - len(pending)} already done", flush=True)
+    counts = collections.Counter(status for name, status in done.items() if name in wanted)
+    batch_number = 0
+    with results_path.open("a") as results, (run_dir / "batches.log").open("a") as batches:
+        def record(name, status, detail):
+            done[name] = status
+            counts[status] += 1
+            results.write(f"{name}\t{status}\t{detail.replace(chr(9), ' ').replace(chr(10), ' ')}\n")
+            if status not in GOOD:
+                print(f"  {status:<14} {name}  {detail}", flush=True)
+
+        while pending:
+            batch_number += 1
+            batch = pending[:args.batch]
+            started = time.monotonic()
+            ended, qpa_cases, running, klog = run_once(settings, args, None, caselist=batch)
+            in_batch = set(batch)
+            unfinished = None
+            terminated = False
+            for name, status, detail in qpa_cases:
+                if name not in in_batch or name in done:
+                    continue
+                if status is None:
+                    unfinished = name
+                else:
+                    record(name, status, detail)
+                    terminated |= detail == "terminated"
+            # A case the title logged as Crash or Timeout is what ended the run.
+            if ended != "finished" and not terminated:
+                # The case that ended the run: the one the log left open, else
+                # the last one klog saw start, else the first with no result,
+                # so every launch settles at least one case.
+                culprit = next((c for c in (unfinished, running) if c in in_batch and c not in done), None)
+                if culprit is None:
+                    culprit = next((c for c in batch if c not in done), None)
+                if culprit is not None:
+                    status = "Timeout" if ended in ("stalled", "timed out") else "Crash"
+                    record(culprit, status, f"the run {ended} (runner)")
+            elif not any(c in done for c in batch):
+                # A finished run that settled nothing would repeat forever.
+                record(batch[0], "Missing", "not in the log of a finished run (runner)")
+            # A run the CTS ended early (it stops after a fatal result, such
+            # as running out of device memory) leaves the rest of its batch to
+            # the next launch.
+            results.flush()
+            seconds = time.monotonic() - started
+            pending = [c for c in pending if c not in done]
+            line = (f"batch {batch_number}: {len(batch)} cases, run {ended} after {seconds:.0f} s; "
+                    f"{len(cases) - len(pending)}/{len(cases)} done: {summarise(counts)}")
+            print(line, flush=True)
+            batches.write(f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S} {line} klog={klog}\n")
+            batches.flush()
+    print(f"run {args.run} complete: {summarise(counts)}")
+    return 1 if any(k not in GOOD for k in counts) else 0
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    selection = parser.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--case", help="a case pattern, as --deqp-case takes it (one launch)")
+    selection.add_argument("--caselist", help="a file of case names, one a line (batched)")
+    selection.add_argument("--mustpass", nargs="+", metavar="GROUP",
+                           help="groups of the pinned mustpass list (vk-default/<GROUP>.txt, or a "
+                                "directory of them), batched")
+    parser.add_argument("--run", help="the batched run's name (default: the date and time); an "
+                                      "existing name resumes it")
+    parser.add_argument("--batch", type=int, default=20000, help="cases a launch (batched runs)")
+    parser.add_argument("--timeout", type=float, default=14400.0, help="watchdog for one launch, seconds")
+    parser.add_argument("--stall", type=float, default=330.0,
+                        help="seconds with no CTS klog line and the log not growing that end a launch; "
+                             "above the CTS's own 300 s limit for a case, which it enforces itself")
+    parser.add_argument("--log-flush", choices=("enable", "disable"), default="disable",
+                        help="flush the log after every write (--deqp-log-flush)")
+    parser.add_argument("--log-images", choices=("enable", "disable"), default="disable",
+                        help="log result images (--deqp-log-images)")
+    parser.add_argument("--elf", default="build/cts/llvm-pie.elf", help="the linked ELF, to symbolise a crash")
+    parser.add_argument("--extra", action="append", default=[], help="another deqp argument")
+    parser.add_argument("--verbose", action="store_true", help="print every case")
+    args = parser.parse_args()
+    args.klog_dir = None
+
+    settings = ps5_console.load_settings()
+    if args.case:
+        return single_run(settings, args)
+    if args.mustpass:
+        cases = mustpass_cases(args.mustpass)
+    else:
+        cases = [line.strip() for line in Path(args.caselist).read_text().splitlines() if line.strip()]
+    args.run = args.run or datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    return batch_run(settings, args, cases)
 
 
 if __name__ == "__main__":

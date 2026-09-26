@@ -78,12 +78,14 @@ def main():
 
 
 def run_title(title, until_pattern, timeout, output=None, fetch=(), echo_pattern="", elf=None, on_line=None,
-              stall=None, progressing=None):
+              stall=None, progressing=None, activity=None):
     """Run a deployed title once; returns (how it ended, the klog file, the
     fetched files). on_line, if given, sees every klog line as it arrives.
-    With stall, a run whose klog is silent that many seconds has stalled,
-    unless progressing() (asked then) says it is still moving; a stalled title
-    is closed."""
+    With stall, a run whose klog has had no line of its own (one matching the
+    regex activity, or any line without it) for that many seconds has
+    stalled, unless progressing() (asked then) says it is still moving; a
+    stalled title is closed. The system writes klog lines of its own every few
+    seconds, so activity is what makes the stall detectable."""
     args = argparse.Namespace(title=title, until=until_pattern, timeout=timeout, output=output,
                               fetch=list(fetch), echo=echo_pattern, elf=elf)
     if not re.fullmatch(r"PPSA\d{5}", args.title):
@@ -133,10 +135,10 @@ def run_title(title, until_pattern, timeout, output=None, fetch=(), echo_pattern
                 chunk = b""
             pending += chunk
             *lines, pending = pending.split(b"\n")
-            if lines:
-                last_line = time.monotonic()
             for raw in lines:
                 line = raw.decode("utf-8", "replace").rstrip("\r")
+                if activity is None or re.search(activity, line):
+                    last_line = time.monotonic()
                 log.write(line + "\n")
                 if echo and echo.search(line):
                     print(line, flush=True)

@@ -33,6 +33,8 @@ VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vk_icdGetInstanceProcAddr(VkInstance in
 /* libkernel's klog writer: a title's stderr does not reach klog, and klog is
  * what tools/run-title.py watches for the run's end. */
 int sceKernelDebugOutText(int channel, const char *text);
+/* ps5platform/klog.h: the driver's messages on standard error, in klog. */
+int ps5_klog_capture_stderr(const char *prefix);
 #else
 #define RESULTS_PATH "radv-smoke.txt"
 #endif
@@ -782,9 +784,14 @@ context_create(struct context *c)
 int
 main(void)
 {
+   const int captured = ps5_klog_capture_stderr("[radv-smoke:stderr] ");
    results = fopen(RESULTS_PATH, "w");
    report("RADV smoke test starts");
-   struct context c = {0};
+   /* The line below arrives in klog prefixed "[radv-smoke:stderr]" when the
+    * capture works; the driver's own messages take the same way. */
+   report("standard error to klog: %s", captured == 0 ? "captured" : "not captured");
+   fprintf(stderr, "standard error reaches klog\n");
+  struct context c = {0};
    if (context_create(&c)) {
       test_fill(&c);
       test_copy(&c);
