@@ -33,9 +33,10 @@ radv_link_recipe() {
     radv_link_inputs=(-L "$sdk_root/target/lib" --whole-archive "$archive" --no-whole-archive
         --start-group "$sdk_root/target/lib/libc++.a" "$sdk_root/target/lib/libc++abi.a"
         "$sdk_root/target/lib/libunwind.a" "$builtins" "$platform" --end-group)
-    # Threads that ask for no stack get the main thread's (the platform's
-    # __wrap_pthread_create), for RADV's, the CTS's and libc++'s alike.
-    radv_link_flags=(--wrap=pthread_create)
+    # Threads that ask for no stack get the main thread's 2 MiB in direct
+    # memory (the platform's thread wraps), for RADV's, the CTS's and libc++'s
+    # alike; join and detach free the stacks.
+    radv_link_flags=(--wrap=pthread_create --wrap=pthread_join --wrap=pthread_detach)
     local name
     # Every allocation the title makes goes to the platform's heap in direct
     # memory (ps5platform/heap.h): libc's private heap ran out under the CTS's
