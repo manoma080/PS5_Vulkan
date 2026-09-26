@@ -3383,3 +3383,31 @@ output (attribute3 0x80040); the others answer 0x8029001E. The answers do not
 change with the declaration. Configured first on a fresh handle, 1 measures
 16,683.3 us a vblank (59.940 Hz) and 15 8,341.6 us (119.881 Hz), and 1 brings
 16,683 us back (PIDs 260-262, jobs/r92-output-modes).
+
+## 2026-09-26 — an AGC submission's size and starting state (RADV, CTS 1.4.6.2)
+
+Found running `dEQP-VK.api.command_buffers.record_many_draws_primary_2`
+(about 131,000 draws in one command buffer) through RADV on my console:
+
+- One AGC submission of about 1.6 million words never completed: its
+  completion marker was never written and nothing faulted. The INDIRECT_BUFFER
+  that runs a submission has a 20-bit size in words, which a submission above
+  2^20 words overflows. RADV's PS5 winsys keeps each AGC submission under
+  2^20 - 64 words.
+- The same words submitted as two AGC submissions in order drew only the draws
+  of the first: every pixel up to the split point (pixel 89,560 of 131,072)
+  matched the reference and none after it did. Each AGC submission starts from
+  reset GPU state, so the second must set up everything again. With the
+  preamble repeated and RADV re-emitting its state at the split, both parts
+  draw and the case passes.
+
+## 2026-09-26 — E5B9G9R9 is not a colour target (RADV, CTS 1.4.6.2)
+
+With RADV reporting E5B9G9R9_UFLOAT_PACK32 as a colour attachment and blit
+destination (as it does for GFX10.3), every
+`dEQP-VK.api.copy_and_blit.copy_commands2.blit_image.all_formats.*` case into
+it read back wrong (500 of 508), across 2D, 3D and 1D images, both filters and
+every tiling pair. The eight that passed blit from A8_UNORM, whose colour
+channels are zero. The console's colour block does not render COLOR_5_9_9_9,
+though its shaders are GFX10.3's; RADV no longer reports the format as
+renderable there (radeon_info.has_rgb9e5_color_target).
