@@ -2411,9 +2411,20 @@ ps5vk_queue_flip(struct ps5vk_queue *queue, int video, uint32_t buffer_index, in
                             "vblanks", marker, buffer_index, PS5VK_FLIP_WAITS);
 }
 
+static uint64_t
+ps5vk_copy_side_run_bytes(const struct ps5vk_image_copy_side *side, uint32_t texel_bytes);
+
 /* An upload into tiled storage (C7): the source is linear, the destination a
  * tiled side, so the region's texels are read row by row from the source's pitch
- * and written one at a time at the place the image's own map gives them. */
+ * and written at the place the image's own map gives them.
+ *
+ * R95: a run at a time, not a texel. The map keeps the bytes of a run
+ * contiguous (ps5vk_copy_side_run_bytes: sixteen for a colour map, eight for
+ * the one-byte map, two texels of a depth map), so the texels of a run aligned
+ * to its size share one address and one copy. Dolphin uploads a full-screen
+ * texture every frame in Rogue Leader (1.1 MiB, sixty a second), and the
+ * address of every texel was the largest single cost on its GPU thread. A side
+ * whose level offset flips the bits inside a run keeps a texel at a time. */
 void
 ps5vk_image_write_execute(const struct ps5vk_memory_copy *copy)
 {
@@ -2421,23 +2432,33 @@ ps5vk_image_write_execute(const struct ps5vk_memory_copy *copy)
    const uint32_t texel_bytes = copy->destination_texel_bytes;
    ps5vk_flush_cpu_cache(source, (size_t)(copy->source_pitch * (copy->height - 1u) +
                                           (uint64_t)copy->width * texel_bytes));
+   const uint64_t run_limit = ps5vk_copy_side_run_bytes(&copy->destination_side, texel_bytes);
+   uint32_t run_texels = 1;
+   if (run_limit != UINT64_MAX && run_limit >= texel_bytes &&
+       ((uint64_t)copy->destination_side.tile_xor & (run_limit - 1u)) == 0)
+      run_texels = (uint32_t)(run_limit / texel_bytes);
    uint64_t low = UINT64_MAX, high = 0;
    for (uint32_t row = 0; row < copy->height; row++) {
       const uint8_t *const row_source = source + (uint64_t)row * copy->source_pitch;
-      for (uint32_t x = 0; x < copy->width; x++) {
-         uint8_t *const destination =
-            (uint8_t *)(uintptr_t)ps5vk_image_copy_address(
-               &copy->destination_side, (int32_t)(copy->destination_x + x),
-               (int32_t)(copy->destination_y + row), texel_bytes, 0);
+      uint32_t x = 0;
+      while (x < copy->width) {
+         const uint32_t column = copy->destination_x + x;
+         const uint32_t count = MIN2(run_texels - column % run_texels, copy->width - x);
+         const uint32_t bytes = count * texel_bytes;
+         uint8_t *const destination = (uint8_t *)(uintptr_t)ps5vk_image_copy_address(
+            &copy->destination_side, (int32_t)column, (int32_t)(copy->destination_y + row),
+            texel_bytes, 0);
          low = MIN2(low, (uint64_t)(uintptr_t)destination);
-         high = MAX2(high, (uint64_t)(uintptr_t)destination + texel_bytes);
-         const uint8_t *const texel = row_source + (uint64_t)x * texel_bytes;
+         high = MAX2(high, (uint64_t)(uintptr_t)destination + bytes);
+         const uint8_t *const texels = row_source + (uint64_t)x * texel_bytes;
          if (copy->reverse_texel_bytes == 0) {
-            memcpy(destination, texel, texel_bytes);
+            memcpy(destination, texels, bytes);
          } else {
-            for (uint32_t byte = 0; byte < texel_bytes; byte++)
-               destination[byte] = texel[texel_bytes - 1u - byte];
+            for (uint32_t at = 0; at < bytes; at += texel_bytes)
+               for (uint32_t byte = 0; byte < texel_bytes; byte++)
+                  destination[at + byte] = texels[at + texel_bytes - 1u - byte];
          }
+         x += count;
       }
    }
    /* The sampler reads these texels once the words after the split have run. */

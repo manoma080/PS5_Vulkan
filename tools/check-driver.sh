@@ -106,6 +106,7 @@ tests=(
     r84_multiview
     r93_threads
     r94_parallel_compiles
+    r95_tiled_upload
 )
 # Negative tests: name, and the host variable that breaks the rule it checks
 # unless the test sets it itself (b3_window).

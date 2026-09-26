@@ -9841,3 +9841,14 @@ vk_r94_parallel_compiles test builds twenty-four pipelines on four threads with
 code identical to serial compiles. On the console, Rogue Leader's cold start
 improves (82% against 77% in the first window); its slow stretches are
 transfers done by the CPU, R95's. jobs/r94-parallel-compiles.
+
+## 2026-09-26 — R95: uploads into tiled images, a run at a time
+
+Uploads into tiled images placed every texel with its own call to the map;
+Dolphin uploads a 1.1 MiB texture sixty times a second in Rogue Leader. A run
+the map keeps contiguous (16 bytes for a colour map) is now one address and one
+copy. The new vk_r95_tiled_upload test checks every texel of unaligned uploads
+at five texel sizes against the driver's map (16 of 16). On the console the GPU
+thread's samples in tiled uploads fell from 4,897 to 1,350; Rogue Leader's slow
+stretches are Dolphin's own (full MMU emulation, its threads waiting on each
+other). jobs/r95-tiled-upload-runs.
