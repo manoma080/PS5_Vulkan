@@ -28,6 +28,20 @@ int32_t sceAgcDriverGetTFRing(uintptr_t *address, uint32_t *size)
     return -1;
 }
 
+int32_t sceAgcDriverSetHsOffchipParam(uint32_t granularity, uint32_t buffering)
+{
+    (void)granularity;
+    (void)buffering;
+    return -1;
+}
+
+int32_t sceAgcDriverGetHsOffchipParam(uint16_t *granularity, uint16_t *buffering)
+{
+    (void)granularity;
+    (void)buffering;
+    return -1;
+}
+
 uint32_t sceAgcDriverGetWaitRenderingPacketSizeInDwords(void)
 {
     return 0;
