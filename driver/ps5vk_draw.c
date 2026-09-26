@@ -1856,8 +1856,12 @@ ps5vk_cmd_buffer_shader_resources(struct ps5vk_cmd_buffer *cmd_buffer,
       device->push_constant_user_data_high = count == 2 ? user_data[s][at + 1] : 0;
    }
    /* R7: the tables this draw builds replace the last draw's in the debug API
-    * (ps5vk_debug_descriptor_tables), so a probe reads the frame's last one. */
-   device->descriptor_table_count = 0;
+    * (ps5vk_debug_descriptor_tables), so a probe reads the frame's last one.
+    * Command buffers are recorded on several threads at once -- a core's and
+    * the frontend's with threaded video -- so the slot is claimed atomically:
+    * a count checked and then incremented let two recorders write one entry
+    * past the array. */
+   p_atomic_set(&device->descriptor_table_count, 0);
    /* Whether this draw samples an image the command buffer rendered into
     * earlier: the colour barrier then has to sit in the words before it
     * (HARDWARE_FINDINGS.md, event 45; ps5vk_sampled_image). */
@@ -2211,8 +2215,9 @@ ps5vk_cmd_buffer_shader_resources(struct ps5vk_cmd_buffer *cmd_buffer,
          /* What the debug API hands a probe: this set's table, the dword its
           * pointer went to and the pointer itself, so a caller asserts both
           * sets' tables instead of inferring them from pixels (R7). */
-         if (device->descriptor_table_count < ARRAY_SIZE(device->descriptor_tables)) {
-            device->descriptor_tables[device->descriptor_table_count++] = (ps5vk_debug_table){
+         const uint32_t slot = p_atomic_inc_return(&device->descriptor_table_count) - 1;
+         if (slot < ARRAY_SIZE(device->descriptor_tables)) {
+            device->descriptor_tables[slot] = (ps5vk_debug_table){
                .stage = s,
                .set = set,
                .user_data_dword = dword,

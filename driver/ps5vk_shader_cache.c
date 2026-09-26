@@ -15,6 +15,7 @@
 #include "ps5vk_cache_build.h"
 #include "util/detect_os.h"
 #include "util/mesa-blake3.h"
+#include "ps5vk_thread.h"
 #include <errno.h>
 #include <pthread.h>
 #include <stdlib.h>
@@ -335,7 +336,7 @@ ps5vk_shader_cache_store(const struct ps5vk_shader_cache_key *key, const PsbcSha
    pthread_mutex_lock(&cache_lock);
    if (!cache_writer_started) {
       pthread_t thread;
-      cache_writer_started = pthread_create(&thread, NULL, cache_writer, NULL) == 0;
+      cache_writer_started = ps5vk_thread_create(&thread, cache_writer, NULL) == 0;
       if (cache_writer_started)
          pthread_detach(thread);
    }

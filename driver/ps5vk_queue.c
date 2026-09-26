@@ -72,6 +72,7 @@
 #include <immintrin.h>
 
 #include "util/os_time.h"
+#include "ps5vk_thread.h"
 
 /* One 2 MiB GPU-visible buffer per queue; its last word is the marker. */
 #define PS5VK_SUBMISSION_BYTES UINT64_C(0x200000)
@@ -1163,7 +1164,7 @@ ps5vk_blit_pool_get(struct ps5vk_queue *queue)
    }
    pthread_cond_init(&pool->wake, NULL);
    for (unsigned i = 0; i < PS5VK_BLIT_WORKERS; i++) {
-      if (pthread_create(&pool->threads[i], NULL, ps5vk_blit_worker, pool) != 0)
+      if (ps5vk_thread_create(&pool->threads[i], ps5vk_blit_worker, pool) != 0)
          break;
       pool->started++;
    }

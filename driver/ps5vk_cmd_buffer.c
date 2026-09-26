@@ -479,7 +479,9 @@ uint32_t
 ps5vk_debug_descriptor_tables(VkDevice _device, ps5vk_debug_table *tables, uint32_t capacity)
 {
    VK_FROM_HANDLE(ps5vk_device, device, _device);
-   const uint32_t count = device != NULL ? device->descriptor_table_count : 0;
+   const uint32_t count = device != NULL ? MIN2(p_atomic_read(&device->descriptor_table_count),
+                                                (uint32_t)ARRAY_SIZE(device->descriptor_tables))
+                                         : 0;
    if (tables == NULL || capacity == 0)
       return count;
    const uint32_t copied = MIN2(count, capacity);
