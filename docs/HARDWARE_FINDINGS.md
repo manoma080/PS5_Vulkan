@@ -3411,3 +3411,29 @@ every tiling pair. The eight that passed blit from A8_UNORM, whose colour
 channels are zero. The console's colour block does not render COLOR_5_9_9_9,
 though its shaders are GFX10.3's; RADV no longer reports the format as
 renderable there (radeon_info.has_rgb9e5_color_target).
+
+## 2026-09-26 — AGC owns the tessellation rings' registers (RADV)
+
+Every tessellated draw through RADV faulted the GPU (the geometry engine
+reading 0xF_F001_0000, unmapped) although RADV's preamble writes
+VGT_TF_MEMORY_BASE for its own ring: AGC programs the tessellation factor
+ring itself. `sceAgcDriverGetTFRing` reports AGC's default, 0xF_F000_0000 and
+128 KiB; `sceAgcDriverSetTFRing(address, size)` moves it, after which the
+same draws run. VGT_HS_OFFCHIP_PARAM is AGC's too:
+`sceAgcDriverGetHsOffchipParam(uint16_t *, uint16_t *)` reads (0, 0) in a
+fresh title, and `sceAgcDriverSetHsOffchipParam(granularity, buffering)`
+keeps the granularity to 2 bits and the buffering to 9 (1023 reads back as
+511). Neither AGC library exports anything for the legacy geometry shader's
+rings (names checked by their NIDs against both modules' exports), and a
+legacy GS hung the GPU in 31 of 33 dEQP-VK.geometry cases; NGG geometry
+shaders run.
+
+## 2026-09-26 — the integer dot-product instructions do not compute
+
+With RADV's GFX10.3 settings, a geometry shader whose vertex count is not
+constant drew nothing, and so did a tessellated patch that NGG culling had
+repacked (quad patches at levels 3 to 9; level 2 drew). Both go through
+NGG's workgroup repack, which sums per-wave counts with v_dot4_u32_u8. With
+the compiler told the GPU has no accelerated dot products (the v_msad_u8
+fallback NAVI10 uses), every one of those draws covers the target. The RADV
+smoke title's geometry and tessellation checks record both.

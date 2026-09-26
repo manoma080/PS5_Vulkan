@@ -56,3 +56,39 @@ then against 1.4.6.2. What the first runs found, in order:
 The E5B9G9R9 finding was on 1.4.5.3 with the fixes of item 3; the others
 were rechecked on 1.4.6.2 (`recheck-5`: every case of the list passes or is
 not supported). The full `api` group is the next run.
+
+## 2026-09-26 — tessellation and geometry
+
+The first full pass over the mustpass list (`main-1`) stopped at
+tessellation and geometry, which faulted or drew nothing. The RADV smoke
+title (PPSA99014) got checks for both (a quad patch from coordinates, from
+control points and with varyings, levels 2 to 9; geometry strips of 16 to 128
+vertices from 1, 2 and 4 points, counts from gl_PrimitiveIDIn, a colour
+varying, recorded primitive IDs) and a probe loop around them: 50 of 50 pass.
+
+1. **AGC owns the tessellation rings' registers** (HARDWARE_FINDINGS.md).
+   RADV's winsys now hands AGC the factor ring (`sceAgcDriverSetTFRing`,
+   through a new `ctx_set_tess_factor_ring` hook) and RADV's off-chip
+   parameter (`sceAgcDriverSetHsOffchipParam`).
+2. **No integer dot products** (HARDWARE_FINDINGS.md). An earlier fix that
+   turned NGG culling off was the wrong cause and is gone: culling is on and
+   the dot-product instructions are off.
+3. **No legacy geometry shaders.** A legacy GS hangs and AGC exports no way
+   to set its rings, so a GS compiled with the stage before it stays NGG
+   (`radeon_info.has_legacy_gs`). Open: a tessellated GS amplifying past 256
+   vertices (dEQP-VK.tessellation.geometry_interaction.limits.*, which NGG
+   multi-cycling cannot serve with tessellation), streamout from a GS, and
+   separately compiled GS shader objects (dEQP-VK.shader_object.link.*
+   with an unlinked GS). Each still loses the device.
+4. **Tooling.** Driver messages reach klog (the platform's stderr capture now
+   moves the stream, since `dup2` is refused); the CTS title reports crashes
+   itself (the CTS's handler hung) and names the case; a hang report gives
+   the main thread's place; `run-cts.py --env` and the smoke title's
+   `/app0/radv-smoke-env.txt` set the driver's environment.
+
+Also this round: host image copy is off on this GPU as upstream keeps it off
+for GFX10's swizzles (`radeon_info.gfx10_1_swizzles`); default thread stacks
+come from direct memory (256 concurrent threads had exhausted flexible
+memory); a fill-buffer case asked for a compute-only queue without checking
+for one (backported upstream's check to the CTS fork); and the driver
+rejects layers and reports only the priorities it serves.
