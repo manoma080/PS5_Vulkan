@@ -14,6 +14,20 @@ int32_t sceAgcDriverSubmitDcb(void *description)
     return -1;
 }
 
+int32_t sceAgcDriverSetTFRing(uintptr_t address, uint32_t size)
+{
+    (void)address;
+    (void)size;
+    return -1;
+}
+
+int32_t sceAgcDriverGetTFRing(uintptr_t *address, uint32_t *size)
+{
+    (void)address;
+    (void)size;
+    return -1;
+}
+
 uint32_t sceAgcDriverGetWaitRenderingPacketSizeInDwords(void)
 {
     return 0;

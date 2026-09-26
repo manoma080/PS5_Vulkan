@@ -106,6 +106,7 @@ def run_once(settings, args, selection, caselist=None):
     else:
         flags.append(f"--deqp-case={selection}")
     flags += args.extra
+    flags += [f"env {setting}" for setting in args.env]
     files["args.txt"] = "\n".join(flags) + "\n"
     upload(settings, files)
 
@@ -274,6 +275,8 @@ def main():
                         help="log result images (--deqp-log-images)")
     parser.add_argument("--elf", default="build/cts/llvm-pie.elf", help="the linked ELF, to symbolise a crash")
     parser.add_argument("--extra", action="append", default=[], help="another deqp argument")
+    parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
+                        help="an environment variable for the driver (RADV_DEBUG=...)")
     parser.add_argument("--verbose", action="store_true", help="print every case")
     args = parser.parse_args()
     args.klog_dir = None

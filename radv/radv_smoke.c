@@ -466,27 +466,27 @@ test_compute(struct context *c)
    buffer_destroy(c, &b);
 }
 
-static void
-test_triangle(struct context *c)
+enum { TARGET_SIZE = 256 };
+
+/* Draws vertex_count vertices with the stages into a cleared blue 256-square
+ * RGBA8 target and reads the target back into readback. */
+static bool
+render_readback(struct context *c, const char *what, const VkPipelineShaderStageCreateInfo *stages,
+                uint32_t stage_count, VkPrimitiveTopology topology, uint32_t patch_points, uint32_t vertex_count,
+                struct buffer *readback)
 {
-   enum { SIZE = 256 };
    const VkFormat format = VK_FORMAT_R8G8B8A8_UNORM;
    VkImage image = VK_NULL_HANDLE;
    VkDeviceMemory image_memory = VK_NULL_HANDLE;
    VkImageView view = VK_NULL_HANDLE;
    VkPipelineLayout layout = VK_NULL_HANDLE;
    VkPipeline pipeline = VK_NULL_HANDLE;
-   struct buffer readback;
-   if (!buffer_create(c, SIZE * SIZE * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT, &readback)) {
-      check(false, "triangle: readback buffer");
-      return;
-   }
-   memset(readback.map, 0, SIZE * SIZE * 4);
+   memset(readback->map, 0, TARGET_SIZE * TARGET_SIZE * 4);
    const VkImageCreateInfo image_info = {
       .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
       .imageType = VK_IMAGE_TYPE_2D,
       .format = format,
-      .extent = {SIZE, SIZE, 1},
+      .extent = {TARGET_SIZE, TARGET_SIZE, 1},
       .mipLevels = 1,
       .arrayLayers = 1,
       .samples = VK_SAMPLE_COUNT_1_BIT,
@@ -515,26 +515,17 @@ test_triangle(struct context *c)
       .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
    };
    ok = ok && vkCreateImageView(c->device, &view_info, NULL, &view) == VK_SUCCESS;
-
-   VkShaderModule vert = shader(c, radv_smoke_vert, sizeof(radv_smoke_vert));
-   VkShaderModule frag = shader(c, radv_smoke_frag, sizeof(radv_smoke_frag));
    const VkPipelineLayoutCreateInfo layout_info = {.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-   ok = ok && vert && frag && vkCreatePipelineLayout(c->device, &layout_info, NULL, &layout) == VK_SUCCESS;
-   const VkPipelineShaderStageCreateInfo stages[2] = {
-      {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-       .stage = VK_SHADER_STAGE_VERTEX_BIT,
-       .module = vert,
-       .pName = "main"},
-      {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-       .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
-       .module = frag,
-       .pName = "main"},
-   };
+   ok = ok && vkCreatePipelineLayout(c->device, &layout_info, NULL, &layout) == VK_SUCCESS;
    const VkPipelineVertexInputStateCreateInfo vertex_input = {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
    const VkPipelineInputAssemblyStateCreateInfo assembly = {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-      .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+      .topology = topology,
+   };
+   const VkPipelineTessellationStateCreateInfo tessellation = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO,
+      .patchControlPoints = patch_points,
    };
    const VkPipelineViewportStateCreateInfo viewport_state = {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
@@ -572,10 +563,11 @@ test_triangle(struct context *c)
    const VkGraphicsPipelineCreateInfo pipeline_info = {
       .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
       .pNext = &rendering_info,
-      .stageCount = 2,
+      .stageCount = stage_count,
       .pStages = stages,
       .pVertexInputState = &vertex_input,
       .pInputAssemblyState = &assembly,
+      .pTessellationState = patch_points ? &tessellation : NULL,
       .pViewportState = &viewport_state,
       .pRasterizationState = &raster,
       .pMultisampleState = &multisample,
@@ -584,7 +576,9 @@ test_triangle(struct context *c)
       .layout = layout,
    };
    ok = ok && vkCreateGraphicsPipelines(c->device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, &pipeline) == VK_SUCCESS;
-   check(ok, "triangle: a graphics pipeline compiles on the console");
+   char label[96];
+   snprintf(label, sizeof(label), "%s: a graphics pipeline compiles on the console", what);
+   check(ok, label);
 
    if (ok) {
       ok = begin(c);
@@ -614,18 +608,18 @@ test_triangle(struct context *c)
       };
       const VkRenderingInfo rendering = {
          .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
-         .renderArea = {{0, 0}, {SIZE, SIZE}},
+         .renderArea = {{0, 0}, {TARGET_SIZE, TARGET_SIZE}},
          .layerCount = 1,
          .colorAttachmentCount = 1,
          .pColorAttachments = &attachment,
       };
       vkCmdBeginRendering(c->cmd, &rendering);
       vkCmdBindPipeline(c->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-      const VkViewport viewport = {0.0f, 0.0f, (float)SIZE, (float)SIZE, 0.0f, 1.0f};
-      const VkRect2D scissor = {{0, 0}, {SIZE, SIZE}};
+      const VkViewport viewport = {0.0f, 0.0f, (float)TARGET_SIZE, (float)TARGET_SIZE, 0.0f, 1.0f};
+      const VkRect2D scissor = {{0, 0}, {TARGET_SIZE, TARGET_SIZE}};
       vkCmdSetViewport(c->cmd, 0, 1, &viewport);
       vkCmdSetScissor(c->cmd, 0, 1, &scissor);
-      vkCmdDraw(c->cmd, 3, 1, 0, 0);
+      vkCmdDraw(c->cmd, vertex_count, 1, 0, 0);
       vkCmdEndRendering(c->cmd);
       const VkImageMemoryBarrier2 to_transfer = {
          .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -646,28 +640,65 @@ test_triangle(struct context *c)
       vkCmdPipelineBarrier2(c->cmd, &second);
       const VkBufferImageCopy copy = {
          .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-         .imageExtent = {SIZE, SIZE, 1},
+         .imageExtent = {TARGET_SIZE, TARGET_SIZE, 1},
       };
-      vkCmdCopyImageToBuffer(c->cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback.buffer, 1, &copy);
-      ok = ok && submit_and_wait(c, "triangle");
+      vkCmdCopyImageToBuffer(c->cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback->buffer, 1, &copy);
+      ok = ok && submit_and_wait(c, what);
    }
+
+   vkDestroyPipeline(c->device, pipeline, NULL);
+   vkDestroyPipelineLayout(c->device, layout, NULL);
+   vkDestroyImageView(c->device, view, NULL);
+   vkDestroyImage(c->device, image, NULL);
+   vkFreeMemory(c->device, image_memory, NULL);
+   return ok;
+}
+
+static VkPipelineShaderStageCreateInfo
+stage_info(VkShaderStageFlagBits stage, VkShaderModule module)
+{
+   return (VkPipelineShaderStageCreateInfo){
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+      .stage = stage,
+      .module = module,
+      .pName = "main",
+   };
+}
+
+static void
+test_triangle(struct context *c)
+{
+   struct buffer readback;
+   if (!buffer_create(c, TARGET_SIZE * TARGET_SIZE * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT, &readback)) {
+      check(false, "triangle: readback buffer");
+      return;
+   }
+   VkShaderModule vert = shader(c, radv_smoke_vert, sizeof(radv_smoke_vert));
+   VkShaderModule frag = shader(c, radv_smoke_frag, sizeof(radv_smoke_frag));
+   const VkPipelineShaderStageCreateInfo stages[2] = {
+      stage_info(VK_SHADER_STAGE_VERTEX_BIT, vert),
+      stage_info(VK_SHADER_STAGE_FRAGMENT_BIT, frag),
+   };
+   bool ok = vert && frag &&
+             render_readback(c, "triangle", stages, 2, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, 0, 3, &readback);
 
    /* The triangle covers x/128 + y/256 < 1 (Vulkan's y runs down the target);
     * every other texel keeps the clear. */
    uint32_t wrong = 0;
    const uint32_t red = 0xff0000ffu, blue = 0xffff0000u;
    const uint32_t *const texels = readback.map;
-   for (uint32_t y = 0; ok && y < SIZE; y++) {
-      for (uint32_t x = 0; x < SIZE; x++) {
+   for (uint32_t y = 0; ok && y < TARGET_SIZE; y++) {
+      for (uint32_t x = 0; x < TARGET_SIZE; x++) {
          const double edge = (x + 0.5) / 128.0 + (y + 0.5) / 256.0;
          /* Texels whose centre is within half a texel of the edge may go
           * either way. */
          if (edge > 0.995 && edge < 1.005)
             continue;
          const uint32_t expected = edge < 1.0 ? red : blue;
-         if (texels[y * SIZE + x] != expected) {
+         if (texels[y * TARGET_SIZE + x] != expected) {
             if (wrong < 4)
-               report("triangle: texel (%u, %u) reads 0x%08x, not 0x%08x", x, y, texels[y * SIZE + x], expected);
+               report("triangle: texel (%u, %u) reads 0x%08x, not 0x%08x", x, y, texels[y * TARGET_SIZE + x],
+                      expected);
             wrong++;
          }
       }
@@ -676,13 +707,126 @@ test_triangle(struct context *c)
       report("triangle: %u texels wrong", wrong);
    check(ok && wrong == 0, "triangle: a clear and a draw read back texel for texel");
 
-   vkDestroyPipeline(c->device, pipeline, NULL);
-   vkDestroyPipelineLayout(c->device, layout, NULL);
    vkDestroyShaderModule(c->device, vert, NULL);
    vkDestroyShaderModule(c->device, frag, NULL);
-   vkDestroyImageView(c->device, view, NULL);
-   vkDestroyImage(c->device, image, NULL);
-   vkFreeMemory(c->device, image_memory, NULL);
+   buffer_destroy(c, &readback);
+}
+
+/* One quad patch over the whole target, its evaluation positions taken from
+ * the tessellation coordinates alone or from the control points the control
+ * shader wrote (which travel through the off-chip ring). */
+static void
+test_tessellation(struct context *c)
+{
+   struct buffer readback;
+   if (!buffer_create(c, TARGET_SIZE * TARGET_SIZE * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT, &readback)) {
+      check(false, "tessellation: readback buffer");
+      return;
+   }
+   VkShaderModule vert = shader(c, radv_smoke_tess_vert, sizeof(radv_smoke_tess_vert));
+   VkShaderModule tesc = shader(c, radv_smoke_tess_tesc, sizeof(radv_smoke_tess_tesc));
+   VkShaderModule from_coord = shader(c, radv_smoke_tess_coord_tese, sizeof(radv_smoke_tess_coord_tese));
+   VkShaderModule from_patch = shader(c, radv_smoke_tess_patch_tese, sizeof(radv_smoke_tess_patch_tese));
+   VkShaderModule frag = shader(c, radv_smoke_frag, sizeof(radv_smoke_frag));
+   const struct {
+      const char *what;
+      VkShaderModule tese;
+   } variants[2] = {
+      {"tessellation from coordinates", from_coord},
+      {"tessellation from control points", from_patch},
+   };
+   for (unsigned v = 0; v < 2; v++) {
+      const VkPipelineShaderStageCreateInfo stages[4] = {
+         stage_info(VK_SHADER_STAGE_VERTEX_BIT, vert),
+         stage_info(VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT, tesc),
+         stage_info(VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT, variants[v].tese),
+         stage_info(VK_SHADER_STAGE_FRAGMENT_BIT, frag),
+      };
+      const bool ok = vert && tesc && variants[v].tese && frag &&
+                      render_readback(c, variants[v].what, stages, 4, VK_PRIMITIVE_TOPOLOGY_PATCH_LIST, 4, 4,
+                                      &readback);
+      uint32_t red = 0;
+      const uint32_t *const texels = readback.map;
+      for (uint32_t i = 0; ok && i < TARGET_SIZE * TARGET_SIZE; i++)
+         red += texels[i] == 0xff0000ffu;
+      char label[96];
+      snprintf(label, sizeof(label), "%s: the patch covers the target (%u of %u texels)", variants[v].what, red,
+               TARGET_SIZE * TARGET_SIZE);
+      check(ok && red == TARGET_SIZE * TARGET_SIZE, label);
+   }
+
+   /* The CTS's shape: generic control points, nine-by-nine, and a colour from
+    * the evaluation shader. */
+   VkShaderModule varying_vert = shader(c, radv_smoke_tess_varying_vert, sizeof(radv_smoke_tess_varying_vert));
+   VkShaderModule varying_tesc = shader(c, radv_smoke_tess_varying_tesc, sizeof(radv_smoke_tess_varying_tesc));
+   VkShaderModule varying_tese = shader(c, radv_smoke_tess_varying_tese, sizeof(radv_smoke_tess_varying_tese));
+   VkShaderModule colour_frag = shader(c, radv_smoke_colour_frag, sizeof(radv_smoke_colour_frag));
+   const struct {
+      const char *what;
+      VkShaderModule tesc, frag;
+   } shapes[1] = {
+      {"tessellation with varyings", varying_tesc, colour_frag},
+   };
+   for (unsigned v = 0; v < 1; v++) {
+      const VkPipelineShaderStageCreateInfo stages[4] = {
+         stage_info(VK_SHADER_STAGE_VERTEX_BIT, varying_vert),
+         stage_info(VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT, shapes[v].tesc),
+         stage_info(VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT, varying_tese),
+         stage_info(VK_SHADER_STAGE_FRAGMENT_BIT, shapes[v].frag),
+      };
+      const char *const what = shapes[v].what;
+      const bool ok = varying_vert && shapes[v].tesc && varying_tese && shapes[v].frag &&
+                      render_readback(c, what, stages, 4, VK_PRIMITIVE_TOPOLOGY_PATCH_LIST, 4, 4, &readback);
+      uint32_t red = 0, blue = 0;
+      const uint32_t *const texels = readback.map;
+      for (uint32_t i = 0; ok && i < TARGET_SIZE * TARGET_SIZE; i++) {
+         red += texels[i] == 0xff0000ffu;
+         blue += texels[i] == 0xffff0000u;
+      }
+      if (ok && red != TARGET_SIZE * TARGET_SIZE)
+         report("%s: %u red, %u blue, texel (128, 128) reads 0x%08x", what, red, blue,
+                texels[128 * TARGET_SIZE + 128]);
+      char label[96];
+      snprintf(label, sizeof(label), "%s: the patch covers the target in its colour", what);
+      check(ok && red == TARGET_SIZE * TARGET_SIZE, label);
+   }
+   /* Levels 2 to 9: NGG culling once dropped every patch above level 2. */
+   VkShaderModule level_tesc = shader(c, radv_smoke_tess_level_tesc, sizeof(radv_smoke_tess_level_tesc));
+   uint32_t levels_covered = 0;
+   for (unsigned level = 2; level <= 9; level++) {
+      const float value = (float)level;
+      const VkSpecializationMapEntry entry = {.constantID = 0, .offset = 0, .size = sizeof(float)};
+      const VkSpecializationInfo special = {
+         .mapEntryCount = 1, .pMapEntries = &entry, .dataSize = sizeof(float), .pData = &value};
+      VkPipelineShaderStageCreateInfo stages[4] = {
+         stage_info(VK_SHADER_STAGE_VERTEX_BIT, varying_vert),
+         stage_info(VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT, level_tesc),
+         stage_info(VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT, varying_tese),
+         stage_info(VK_SHADER_STAGE_FRAGMENT_BIT, frag),
+      };
+      stages[1].pSpecializationInfo = &special;
+      const bool ok =
+         render_readback(c, "tessellation levels", stages, 4, VK_PRIMITIVE_TOPOLOGY_PATCH_LIST, 4, 4, &readback);
+      uint32_t red = 0;
+      const uint32_t *const texels = readback.map;
+      for (uint32_t i = 0; ok && i < TARGET_SIZE * TARGET_SIZE; i++)
+         red += texels[i] == 0xff0000ffu;
+      if (red == TARGET_SIZE * TARGET_SIZE)
+         levels_covered++;
+      else
+         report("tessellation level %u: %u of %u texels red", level, red, TARGET_SIZE * TARGET_SIZE);
+   }
+   check(levels_covered == 8, "tessellation levels 2 to 9: each patch covers the target");
+   vkDestroyShaderModule(c->device, level_tesc, NULL);
+   vkDestroyShaderModule(c->device, varying_vert, NULL);
+   vkDestroyShaderModule(c->device, varying_tesc, NULL);
+   vkDestroyShaderModule(c->device, varying_tese, NULL);
+   vkDestroyShaderModule(c->device, colour_frag, NULL);
+   vkDestroyShaderModule(c->device, vert, NULL);
+   vkDestroyShaderModule(c->device, tesc, NULL);
+   vkDestroyShaderModule(c->device, from_coord, NULL);
+   vkDestroyShaderModule(c->device, from_patch, NULL);
+   vkDestroyShaderModule(c->device, frag, NULL);
    buffer_destroy(c, &readback);
 }
 
@@ -751,9 +895,11 @@ context_create(struct context *c)
       .synchronization2 = VK_TRUE,
       .dynamicRendering = VK_TRUE,
    };
+   const VkPhysicalDeviceFeatures features = {.tessellationShader = VK_TRUE};
    const VkDeviceCreateInfo device_info = {
       .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
       .pNext = &features13,
+      .pEnabledFeatures = &features,
       .queueCreateInfoCount = 1,
       .pQueueCreateInfos = &queue_info,
    };
@@ -797,6 +943,7 @@ main(void)
       test_copy(&c);
       test_compute(&c);
       test_triangle(&c);
+      test_tessellation(&c);
    }
    if (c.device) {
       vkDeviceWaitIdle(c.device);
