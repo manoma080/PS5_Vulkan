@@ -156,14 +156,13 @@ static VkResult ps5vk_compute_pipeline_compile(struct ps5vk_device *device,
                           reason);
    }
 
-   call_once(&ps5vk_compile_once, ps5vk_compile_mutex_init);
-   mtx_lock(&ps5vk_compile_mutex);
+   ps5vk_compile_begin();
    PsbcShaderOutput output;
    memset(&output, 0, sizeof(output));
    bool aborted = false;
    const PsbcResult compiled = ps5vk_compile_shader_deep(
       NULL, (const uint32_t *)module->words, module->size, &options, &output, &aborted);
-   mtx_unlock(&ps5vk_compile_mutex);
+   ps5vk_compile_end();
    const PsbcShaderMetadata metadata = output.metadata;
    const bool produced =
       compiled == PSBC_RESULT_OK && output.machine_code != NULL && output.machine_code_size != 0;

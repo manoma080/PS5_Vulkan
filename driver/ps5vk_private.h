@@ -1183,12 +1183,22 @@ struct ps5vk_sampler {
  * forty bytes (ps5vk_pipeline.c, R10). */
 #define PS5VK_CAPABILITY_LIST_BYTES 256
 
-/* The compiler and AGC's shader creation are serialised by one mutex, which the
- * graphics and compute paths share (ps5vk_pipeline.c, ps5vk_compute.c). */
-extern once_flag ps5vk_compile_once;
-extern mtx_t ps5vk_compile_mutex;
+/* R94: pipelines compile on several threads at once. A compile takes one of
+ * PS5VK_PARALLEL_COMPILES slots for its duration (ps5vk_compile_begin/end), which
+ * bounds the memory the concurrent compiles hold, not their order; AGC's shader
+ * creation and linking, which the driver does not know to be reentrant, take
+ * turns under a lock of their own, held only for those calls, so a draw linking
+ * its pipeline never waits behind a compile (ps5vk_pipeline.c,
+ * ps5vk_compute.c). */
+#define PS5VK_PARALLEL_COMPILES 6u
 void
-ps5vk_compile_mutex_init(void);
+ps5vk_compile_begin(void);
+void
+ps5vk_compile_end(void);
+void
+ps5vk_agc_lock(void);
+void
+ps5vk_agc_unlock(void);
 
 /* One compile, run on a thread of this repository's own with a stack the
  * application's thread size cannot shrink (ps5vk_pipeline.c). aborted, when it

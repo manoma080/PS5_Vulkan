@@ -155,16 +155,72 @@ static const struct {
  * in ps5vk_private.h: the compute path checks its own stage with the same
  * calls. */
 
-/* Neither the compiler nor AGC's shader creation is known to be reentrant:
- * compilations and creations take turns. The compute path lives in
- * ps5vk_compute.c and takes the same lock. */
-once_flag ps5vk_compile_once = ONCE_FLAG_INIT;
-mtx_t ps5vk_compile_mutex;
+/* R94: compiles run side by side. The compiler is Mesa's NIR and ACO behind
+ * psbc, whose own state is a reference-counted initialisation under its mutex
+ * and options made once; each compile works in its own arenas, as RADV's
+ * parallel pipeline compiles do. One global lock around every compile -- cache
+ * hits included -- made an application's background compile threads take turns
+ * and made a draw that links its pipeline wait behind whichever compile held
+ * it: Dolphin's asynchronous ubershaders stalled its GPU thread for 77-121 ms
+ * at a time on the console. A compile now takes one of PS5VK_PARALLEL_COMPILES
+ * slots, which bounds the memory the concurrent compiles hold (each runs on
+ * its own 32 MiB stack, PS5VK_COMPILE_STACK_BYTES). AGC's shader creation and
+ * linking are not known to be reentrant, so they alone take turns, under a
+ * lock held for those calls only. The compute path (ps5vk_compute.c) uses the
+ * same slots and lock. */
+static once_flag ps5vk_compile_once = ONCE_FLAG_INIT;
+static mtx_t ps5vk_compile_slots_lock;
+static cnd_t ps5vk_compile_slot_free;
+static unsigned ps5vk_compiles_running;
+static mtx_t ps5vk_agc_mutex;
+
+static void ps5vk_compile_signals_install(void);
+static void ps5vk_compile_signals_restore(void);
+
+static void
+ps5vk_compile_init(void)
+{
+   mtx_init(&ps5vk_compile_slots_lock, mtx_plain);
+   cnd_init(&ps5vk_compile_slot_free);
+   mtx_init(&ps5vk_agc_mutex, mtx_plain);
+}
 
 void
-ps5vk_compile_mutex_init(void)
+ps5vk_compile_begin(void)
 {
-   mtx_init(&ps5vk_compile_mutex, mtx_plain);
+   call_once(&ps5vk_compile_once, ps5vk_compile_init);
+   mtx_lock(&ps5vk_compile_slots_lock);
+   while (ps5vk_compiles_running >= PS5VK_PARALLEL_COMPILES)
+      cnd_wait(&ps5vk_compile_slot_free, &ps5vk_compile_slots_lock);
+   /* The first compile of a run of overlapping ones installs the abort guard
+    * and the last one out puts the process's own handlers back, so outside a
+    * compile the process's signal handling is exactly what it was. */
+   if (ps5vk_compiles_running++ == 0)
+      ps5vk_compile_signals_install();
+   mtx_unlock(&ps5vk_compile_slots_lock);
+}
+
+void
+ps5vk_compile_end(void)
+{
+   mtx_lock(&ps5vk_compile_slots_lock);
+   if (--ps5vk_compiles_running == 0)
+      ps5vk_compile_signals_restore();
+   cnd_signal(&ps5vk_compile_slot_free);
+   mtx_unlock(&ps5vk_compile_slots_lock);
+}
+
+void
+ps5vk_agc_lock(void)
+{
+   call_once(&ps5vk_compile_once, ps5vk_compile_init);
+   mtx_lock(&ps5vk_agc_mutex);
+}
+
+void
+ps5vk_agc_unlock(void)
+{
+   mtx_unlock(&ps5vk_agc_mutex);
 }
 
 void
@@ -983,15 +1039,62 @@ ps5vk_dump_spirv(const uint32_t *words, size_t size, const PsbcCompileOptions *o
    fflush(stderr);
 }
 
-static sigjmp_buf ps5vk_compile_jump;
-static volatile sig_atomic_t ps5vk_compile_raised;
+/* R94: the guard is per thread. The handlers are the process's, installed
+ * while any compile runs (ps5vk_compile_begin), and a raise on a thread that is
+ * compiling jumps back into that thread's own compile; on any other thread the
+ * signal goes to the handler the process had before, as it would without the
+ * driver. */
+static _Thread_local sigjmp_buf ps5vk_compile_jump;
+static _Thread_local volatile sig_atomic_t ps5vk_compiling;
+static struct sigaction ps5vk_previous_abort, ps5vk_previous_trap;
+static bool ps5vk_caught_abort, ps5vk_caught_trap;
 
 static void
-ps5vk_compile_signal(int signo)
+ps5vk_compile_signal(int signo, siginfo_t *info, void *context)
 {
-   (void)signo;
-   ps5vk_compile_raised = 1;
-   siglongjmp(ps5vk_compile_jump, 1);
+   if (ps5vk_compiling) {
+      ps5vk_compiling = 0;
+      siglongjmp(ps5vk_compile_jump, 1);
+   }
+   const struct sigaction *const previous =
+      signo == SIGABRT ? &ps5vk_previous_abort : &ps5vk_previous_trap;
+   if (previous->sa_flags & SA_SIGINFO) {
+      if (previous->sa_sigaction != NULL)
+         previous->sa_sigaction(signo, info, context);
+      return;
+   }
+   if (previous->sa_handler == SIG_IGN)
+      return;
+   if (previous->sa_handler == SIG_DFL || previous->sa_handler == NULL) {
+      signal(signo, SIG_DFL);
+      raise(signo);
+      return;
+   }
+   previous->sa_handler(signo);
+}
+
+/* Under ps5vk_compile_slots_lock. */
+static void
+ps5vk_compile_signals_install(void)
+{
+   struct sigaction action;
+   memset(&action, 0, sizeof(action));
+   action.sa_sigaction = ps5vk_compile_signal;
+   action.sa_flags = SA_SIGINFO;
+   sigemptyset(&action.sa_mask);
+   ps5vk_caught_abort = sigaction(SIGABRT, &action, &ps5vk_previous_abort) == 0;
+   ps5vk_caught_trap = sigaction(SIGTRAP, &action, &ps5vk_previous_trap) == 0;
+}
+
+/* Under ps5vk_compile_slots_lock. */
+static void
+ps5vk_compile_signals_restore(void)
+{
+   if (ps5vk_caught_trap)
+      sigaction(SIGTRAP, &ps5vk_previous_trap, NULL);
+   if (ps5vk_caught_abort)
+      sigaction(SIGABRT, &ps5vk_previous_abort, NULL);
+   ps5vk_caught_trap = ps5vk_caught_abort = false;
 }
 
 static void *
@@ -1011,21 +1114,20 @@ ps5vk_compile_worker(void *argument)
       fprintf(stderr, "[ps5vk] compile internal NIR shader (stage %d)\n", (int)call->options->stage);
       fflush(stderr);
    }
-   struct sigaction action, saved_abort, saved_trap;
-   memset(&action, 0, sizeof(action));
-   action.sa_handler = ps5vk_compile_signal;
-   sigemptyset(&action.sa_mask);
-   const bool caught_abort = sigaction(SIGABRT, &action, &saved_abort) == 0;
-   const bool caught_trap = sigaction(SIGTRAP, &action, &saved_trap) == 0;
-   ps5vk_compile_raised = 0;
+   /* The handlers are installed while any compile runs (ps5vk_compile_begin);
+    * this thread arms its own guard. */
+   const bool caught_abort = ps5vk_caught_abort;
+   const bool caught_trap = ps5vk_caught_trap;
    if (!caught_abort && !caught_trap) {
       call->result = call->nir ? psbc_compile_nir(call->nir, call->options, call->output)
                                : psbc_compile_shader(call->words, call->size, call->options,
                                                      call->output);
    } else if (sigsetjmp(ps5vk_compile_jump, 1) == 0) {
+      ps5vk_compiling = 1;
       call->result = call->nir ? psbc_compile_nir(call->nir, call->options, call->output)
                                : psbc_compile_shader(call->words, call->size, call->options,
                                                      call->output);
+      ps5vk_compiling = 0;
    } else {
       /* The compiler raised: no package was written and the result is the
        * caller's to turn into a sentence. */
@@ -1034,10 +1136,6 @@ ps5vk_compile_worker(void *argument)
       printf("[ps5vk] compile raised: the shader compiler aborted on this shader\n");
       fflush(stdout);
    }
-   if (caught_trap)
-      sigaction(SIGTRAP, &saved_trap, NULL);
-   if (caught_abort)
-      sigaction(SIGABRT, &saved_abort, NULL);
    printf("[ps5vk] compile done: result=%d\n", (int)call->result);
    fflush(stdout);
    return NULL;
@@ -1111,8 +1209,9 @@ ps5vk_compile_shader_uncached(struct nir_shader *nir, const uint32_t *words, siz
    return result;
 }
 
-/* Both callers hold ps5vk_compile_mutex. Only immutable compiler output is
- * cached; GPU addresses, AGC objects and pipeline state are always rebuilt. */
+/* Both callers hold a compile slot (ps5vk_compile_begin). Only immutable
+ * compiler output is cached; GPU addresses, AGC objects and pipeline state are
+ * always rebuilt. */
 PsbcResult
 ps5vk_compile_shader_deep(struct nir_shader *nir, const uint32_t *words, size_t size,
                           const PsbcCompileOptions *options, PsbcShaderOutput *output,
@@ -1183,8 +1282,7 @@ ps5vk_compile_stage(struct ps5vk_device *device, const VkPipelineShaderStageCrea
    if ((!stage || nir_info) && !nir)
       return vk_error(device, VK_ERROR_OUT_OF_HOST_MEMORY);
 
-   call_once(&ps5vk_compile_once, ps5vk_compile_mutex_init);
-   mtx_lock(&ps5vk_compile_mutex);
+   ps5vk_compile_begin();
    PsbcShaderOutput output;
    memset(&output, 0, sizeof(output));
    /* A stage Mesa's meta operations hand the driver is NIR and no module, so
@@ -1204,7 +1302,7 @@ ps5vk_compile_stage(struct ps5vk_device *device, const VkPipelineShaderStageCrea
    if (result == PSBC_RESULT_OK)
       package->metadata = output.metadata;
    psbc_free_output(&output);
-   mtx_unlock(&ps5vk_compile_mutex);
+   ps5vk_compile_end();
    if (nir)
       ps5vk_nir_free(nir);
 
@@ -1422,8 +1520,7 @@ ps5vk_pipeline_create_shaders(struct ps5vk_device *device, struct ps5vk_pipeline
 
    void *vertex_shader = NULL;
    void *pixel_shader = NULL;
-   call_once(&ps5vk_compile_once, ps5vk_compile_mutex_init);
-   mtx_lock(&ps5vk_compile_mutex);
+   ps5vk_agc_lock();
    int32_t result = sceAgcCreateShader(&vertex_shader, stage, stage + vertex_code_offset);
    if (result == 0 && vertex_shader)
       result = sceAgcCreateShader(&pixel_shader, stage + pixel_offset, stage + pixel_code_offset);
@@ -1431,7 +1528,7 @@ ps5vk_pipeline_create_shaders(struct ps5vk_device *device, struct ps5vk_pipeline
       result = sceAgcLinkShaders(stage + shaders->context_offset,
                                  stage + shaders->uniform_offset, NULL, vertex_shader,
                                  pixel_shader, pipeline->link_primitive_type);
-   mtx_unlock(&ps5vk_compile_mutex);
+   ps5vk_agc_unlock();
    if (result != 0 || !vertex_shader || !pixel_shader) {
       ps5vk_direct_mapping_destroy(&shaders->stage);
       return vk_errorf(device, VK_ERROR_UNKNOWN, "AGC shader creation or linking failed: 0x%08x",

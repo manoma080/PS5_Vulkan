@@ -9829,3 +9829,15 @@ times six vblanks after configuring the high-frame-rate mode and restores
 59.94 Hz above 12.5 ms a vblank; mine measures 8.345 ms and keeps 119.88 Hz.
 R90's battery with R90's and R91's cases passes 31 of 31 (PID 290).
 jobs/r93-tracked-lists.
+
+## 2026-09-26 — R94: pipelines compile on several threads at once
+
+One global lock covered every compile, cache hits included, and AGC's shader
+creation and linking, so an emulator's asynchronous compile threads took turns
+and a draw linking its pipeline waited behind them (Dolphin's GPU thread, 77-121
+ms). Compiles now take one of six slots and run side by side; AGC's calls have a
+lock of their own; the compiler's abort guard is per thread. The new
+vk_r94_parallel_compiles test builds twenty-four pipelines on four threads with
+code identical to serial compiles. On the console, Rogue Leader's cold start
+improves (82% against 77% in the first window); its slow stretches are
+transfers done by the CPU, R95's. jobs/r94-parallel-compiles.

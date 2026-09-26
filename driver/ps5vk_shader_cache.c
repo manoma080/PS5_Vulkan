@@ -44,16 +44,16 @@ struct cache_header {
  * (the port's tools/shader-cache.py). The base is PS5VK_SHADER_CACHE_DIR, or on
  * the console the first line of /app0/ps5vk-shader-cache-dir.txt (a test hook,
  * default-off), or /app0/ps5vk-shader-cache. The directories are opened to the
- * FTP service (below). NULL when there is none. Called under
- * the compiler mutex, so the one-time setup needs no lock of its own. */
-static const char *
-ps5vk_shader_cache_directory(void)
+ * FTP service (below). NULL when there is none. Compiles run on several
+ * threads at once (R94), so the setup is done once, by whichever asks first. */
+static char ps5vk_cache_directory[768];
+static pthread_once_t ps5vk_cache_directory_once = PTHREAD_ONCE_INIT;
+
+static void
+ps5vk_shader_cache_directory_setup(void)
 {
-   static bool done;
-   static char directory[768];
-   if (done)
-      return directory[0] ? directory : NULL;
-   done = true;
+   char *const directory = ps5vk_cache_directory;
+   const size_t directory_size = sizeof(ps5vk_cache_directory);
    char base[512] = {0};
    const char *const environment = getenv("PS5VK_SHADER_CACHE_DIR");
    if (environment != NULL) {
@@ -71,8 +71,8 @@ ps5vk_shader_cache_directory(void)
 #endif
    }
    if (!base[0])
-      return NULL;
-   snprintf(directory, sizeof(directory), "%s/%.16s", base, PS5VK_CACHE_BUILD);
+      return;
+   snprintf(directory, directory_size, "%s/%.16s", base, PS5VK_CACHE_BUILD);
    const bool made = (mkdir(base, 0777) == 0 || errno == EEXIST) &&
                      (mkdir(directory, 0777) == 0 || errno == EEXIST);
    /* Open to the console's FTP service, which is not the title's user: it reads
@@ -83,9 +83,14 @@ ps5vk_shader_cache_directory(void)
    if (!made) {
       fprintf(stderr, "[ps5vk] shader cache directory unavailable; compiling normally\n");
       directory[0] = '\0';
-      return NULL;
    }
-   return directory;
+}
+
+static const char *
+ps5vk_shader_cache_directory(void)
+{
+   pthread_once(&ps5vk_cache_directory_once, ps5vk_shader_cache_directory_setup);
+   return ps5vk_cache_directory[0] ? ps5vk_cache_directory : NULL;
 }
 
 bool
