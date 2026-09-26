@@ -4,9 +4,17 @@ Volatile by design. Keep this file under about 120 lines. Specifications are in
 `docs/VULKAN_PROBE_PLAN.md`; measurements are in `docs/M5_PHASE_C.md` and
 `docs/HARDWARE_FINDINGS.md`.
 
-_Updated: 2026-09-24_
+_Updated: 2026-09-26_
 
 ## Now
+**Vulkan 1.4 and the CTS: a plan is drafted for my decision**
+([VULKAN_1_4_PLAN.md](VULKAN_1_4_PLAN.md)). It recommends porting RADV to the
+console with a PS5 winsys rather than growing ps5vk, gated by eight spike probes
+(S1-S8); S6 (occlusion counters per render backend) and S7 (host coherence) test
+suspected defects in the shipping driver whichever route is chosen. Nothing is
+started until I decide. R93-R95 (tracked lists, parallel compiles, tiled upload
+runs) are in docs/M5_PHASE_C.md.
+
 **Dolphin (Wind Waker) through ../PS5_RetroArch is the priority.** Every
 driver fault it shows is reduced to a runner probe, fixed as a general Vulkan
 mechanism, proved on the console and replayed on the host. The rounds so far,
