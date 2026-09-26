@@ -72,6 +72,20 @@ def main():
     parser.add_argument("--echo", default="", help="regex of klog lines to print while capturing")
     parser.add_argument("--elf", help="the linked ELF (before signing), to symbolise a crash's backtrace")
     args = parser.parse_args()
+    ended, _output, _fetched = run_title(args.title, args.until, args.timeout, args.output, args.fetch,
+                                         args.echo, args.elf)
+    return 0 if ended == "finished" else 3
+
+
+def run_title(title, until_pattern, timeout, output=None, fetch=(), echo_pattern="", elf=None, on_line=None,
+              stall=None, progressing=None):
+    """Run a deployed title once; returns (how it ended, the klog file, the
+    fetched files). on_line, if given, sees every klog line as it arrives.
+    With stall, a run whose klog is silent that many seconds has stalled,
+    unless progressing() (asked then) says it is still moving; a stalled title
+    is closed."""
+    args = argparse.Namespace(title=title, until=until_pattern, timeout=timeout, output=output,
+                              fetch=list(fetch), echo=echo_pattern, elf=elf)
     if not re.fullmatch(r"PPSA\d{5}", args.title):
         raise SystemExit("TITLE must look like PPSA12345")
 
@@ -110,6 +124,7 @@ def main():
         started = time.monotonic()
         deadline = started + args.timeout
         next_poll = started + 2.0
+        last_line = started
         ended = None
         while time.monotonic() < deadline and ended is None:
             try:
@@ -118,11 +133,15 @@ def main():
                 chunk = b""
             pending += chunk
             *lines, pending = pending.split(b"\n")
+            if lines:
+                last_line = time.monotonic()
             for raw in lines:
                 line = raw.decode("utf-8", "replace").rstrip("\r")
                 log.write(line + "\n")
                 if echo and echo.search(line):
                     print(line, flush=True)
+                if on_line:
+                    on_line(line)
                 if until.search(line):
                     matched = True
                     ended = ended or "finished"
@@ -133,6 +152,11 @@ def main():
                 next_poll = time.monotonic() + 1.0
                 if " count=0 " in ps5_console.ps5vkctl_command(settings, "procs", timeout=10) + " ":
                     ended = "exited"
+            if ended is None and stall and time.monotonic() - last_line > stall:
+                if progressing and progressing():
+                    last_line = time.monotonic()
+                else:
+                    ended = "stalled"
         print(f"run {ended or 'timed out'} after {time.monotonic() - started:.1f} s", flush=True)
         # What follows the end: a crash record's registers and backtrace.
         klog.settimeout(0.25)
@@ -155,6 +179,7 @@ def main():
     if " count=0 " not in status + " ":
         print(f"closing: {ps5_console.ps5vkctl_command(settings, f'kill {args.title}', timeout=60)}")
 
+    fetched = []
     for name in args.fetch:
         destination = output.with_name(output.stem + "-" + name.replace("/", "_"))
         with FTP() as ftp:
@@ -162,8 +187,9 @@ def main():
             ftp.login(settings["ftp_user"], settings["ftp_password"] or "codex")
             with destination.open("wb") as sink:
                 ftp.retrbinary(f"RETR /data/homebrew/{args.title}/{name}", sink.write)
+        fetched.append(destination)
         print(f"fetched: {destination}")
-    return 0 if matched else 3
+    return ended or "timed out", output, fetched
 
 
 if __name__ == "__main__":

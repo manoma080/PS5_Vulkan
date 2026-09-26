@@ -144,17 +144,19 @@ reassembled log and the driver digest committed together.
 | What | Value |
 | --- | --- |
 | Upstream | [KhronosGroup/VK-GL-CTS](https://github.com/KhronosGroup/VK-GL-CTS) |
-| Tag | `vulkan-cts-1.3.8.4` |
-| Commit | `a0270c1897597e6c77679870e10415398a13001c` |
+| Tag | `vulkan-cts-1.4.5.3` |
+| Commit | `b17cf9b3863c44aea6f5e37d654d729f56de12ed` |
 | License | Apache-2.0 |
 
-The first target is the 1.0 claim, and this is the tag the reference
-implementation below pins, so its results and ours are comparable. Later rises
-pin the tag that matches the version they claim, at the point they are
-scheduled.
+The target is the Vulkan 1.4 claim of the RADV port (route B,
+[VULKAN_1_4_PLAN.md](VULKAN_1_4_PLAN.md)). This is the release Mesa 26.2's RADV
+reports its conformance against (`conformanceVersion` 1.4.5.3), so a console
+result and Mesa's own CI expectations for the same family
+(`src/amd/ci/radv-navi21-*.txt`) are read against one list. The earlier 1.0 pin,
+`vulkan-cts-1.3.8.4`, is in the history and its results in the phase logs.
 
 The checkout is `tools/fetch-vk-gl-cts.sh`: it clones the tag shallow into
-`.deps/work/vk-gl-cts` (moved by `PS5VK_CTS_DIR`), refuses a checkout that is not
+`.deps/work/vk-gl-cts-1.4` (moved by `PS5VK_CTS_DIR`), refuses a checkout that is not
 the pinned commit, and writes `conformance_inventory/cts_pin.json`. That record
 carries two kinds of pin, which are not the same thing -- the CTS revision, which
 the script verifies from the checkout, and the revisions the CTS's own
@@ -180,6 +182,40 @@ driver is a model -- it records and replays AGC work -- so the groups that belon
 the ones that read what the device reports and how it handles the API, which is also where
 the selection is decided. The first runs and their failures are in
 `conformance_inventory/cts_host_baseline.json` and `docs/M5_PHASE_C.md`.
+
+## The CTS on the console, against RADV
+
+`deqp-vk` runs on the console as the title PPSA99015, with RADV and its PS5
+winsys linked in. The CTS side is my fork `PS5_VK-GL-CTS` (branch `ps5-port`,
+based on the pinned commit): its `DEQP_TARGET=ps5` platform makes the linked
+driver's `vk_icdGetInstanceProcAddr` the whole loader, reads the arguments from
+`/app0/cts/args.txt` and mirrors every line the CTS prints to klog.
+
+- `tools/build-cts-title.sh` links the fork's `build-ps5` objects with the RADV
+  archive through `tools/radv-link.sh`, signs the title into `dist/PPSA99015` and
+  copies the CTS data beside it.
+- `tools/run-cts.py --case '<pattern>'` (or `--caselist <file>`) writes the
+  arguments, runs the title through `tools/run-title.py` and summarises the QPA
+  log it fetches back. A run ends on the CTS's last line, a crash, the title's
+  exit, or 90 s with no new klog line while the QPA file stops growing.
+
+Two console facts shaped this:
+
+1. **The log is not flushed per write.** A `write()` to the console's storage
+   costs about 3.3 ms whatever its size (PS5_PayloadSDK's platform
+   `docs/PROBE.md`), and `--deqp-log-flush=enable` flushes after every XML
+   element. An `api.info.image_format_properties` case that logs 322 messages
+   took 11.5 s; without the flush it takes 17 ms. The runner passes
+   `--deqp-log-flush=disable` unless asked otherwise; klog still names the
+   running case if the title crashes.
+2. **Allocations go to direct memory.** libc's private heap ran out in the
+   first shader build (`api.smoke.create_shader`: an 8 KiB `operator new[]` in
+   glslang's pool allocator). The platform layer's title heap
+   (`ps5platform/heap.h`) now serves every allocation the title makes.
+
+First results (2026-09-26): `dEQP-VK.api.smoke.*` 6 of 6 pass;
+`dEQP-VK.api.info.*` 8,175 cases, 7,248 pass, 927 not supported, none failing,
+in 56 s.
 
 ## Why this is not a small task
 

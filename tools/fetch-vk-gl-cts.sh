@@ -26,10 +26,10 @@
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-work="${PS5VK_CTS_DIR:-$root/.deps/work/vk-gl-cts}"
+work="${PS5VK_CTS_DIR:-$root/.deps/work/vk-gl-cts-1.4}"
 record="$root/conformance_inventory/cts_pin.json"
-tag="vulkan-cts-1.3.8.4"
-commit="a0270c1897597e6c77679870e10415398a13001c"
+tag="vulkan-cts-1.4.5.3"
+commit="b17cf9b3863c44aea6f5e37d654d729f56de12ed"
 repo="https://github.com/KhronosGroup/VK-GL-CTS.git"
 
 write_record() {

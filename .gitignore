@@ -21,3 +21,6 @@ dist/
 *.sprx
 *.prx
 *.pkg
+
+# CTS logs fetched from the console.
+*.qpa

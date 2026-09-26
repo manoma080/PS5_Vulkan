@@ -33,11 +33,25 @@ radv_link_recipe() {
     radv_link_inputs=(-L "$sdk_root/target/lib" --whole-archive "$archive" --no-whole-archive
         --start-group "$sdk_root/target/lib/libc++.a" "$sdk_root/target/lib/libc++abi.a"
         "$sdk_root/target/lib/libunwind.a" "$builtins" "$platform" --end-group)
-    radv_link_flags=()
+    # Threads that ask for no stack get the main thread's (the platform's
+    # __wrap_pthread_create), for RADV's, the CTS's and libc++'s alike.
+    radv_link_flags=(--wrap=pthread_create)
     local name
+    # Every allocation the title makes goes to the platform's heap in direct
+    # memory (ps5platform/heap.h): libc's private heap ran out under the CTS's
+    # first shader build.
+    for name in malloc calloc realloc free posix_memalign aligned_alloc memalign \
+            malloc_usable_size reallocf reallocarray getline getdelim; do
+        radv_link_flags+=("--wrap=$name")
+    done
     for name in qsort_r mkstemps openlog popen pclose open_memstream __xuname __assert \
             __memset_chk regcomp regexec regfree regerror localtime_r newlocale freelocale \
-            strtod_l strtof_l dladdr; do
+            strtod_l strtof_l dladdr utimensat localeconv_l strtoll_l strtoull_l strtold_l \
+            snprintf_l sscanf_l asprintf_l strcoll_l strxfrm_l strftime_l wcscoll_l wcsxfrm_l \
+            btowc_l wctob_l iswctype_l mbrlen_l mbrtowc_l mbsrtowcs_l mbsnrtowcs_l wcrtomb_l \
+            wcsnrtombs_l mbtowc_l ___mb_cur_max_l ___runetype_l ___tolower_l ___toupper_l \
+            __runes_for_locale catopen catgets catclose backtrace backtrace_symbols_fd \
+            __cxa_thread_atexit_impl; do
         radv_link_flags+=("--defsym=$name=ps5_$name")
     done
 
