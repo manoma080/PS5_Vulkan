@@ -46,16 +46,18 @@ ps5vk_cmd_buffer_release_tables(struct ps5vk_cmd_buffer *cmd_buffer)
 {
    struct ps5vk_device *const device =
       container_of(cmd_buffer->vk.base.device, struct ps5vk_device, vk);
+   /* The device's list is what the runner's capture reads, so a chunk that
+    * goes away leaves it. */
+   if (cmd_buffer->table_chunks != NULL) {
+      mtx_lock(&device->tracked_lock);
+      for (struct ps5vk_table_chunk *chunk = cmd_buffer->table_chunks; chunk != NULL;
+           chunk = chunk->next_in_buffer)
+         list_del(&chunk->device_link);
+      mtx_unlock(&device->tracked_lock);
+   }
    struct ps5vk_table_chunk *chunk = cmd_buffer->table_chunks;
    while (chunk != NULL) {
       struct ps5vk_table_chunk *const next = chunk->next_in_buffer;
-      /* The device's list is what the runner's capture reads, so a chunk that
-       * goes away leaves it. */
-      struct ps5vk_table_chunk **at = &device->table_chunks;
-      while (*at != NULL && *at != chunk)
-         at = &(*at)->next_in_device;
-      if (*at == chunk)
-         *at = chunk->next_in_device;
       ps5vk_direct_mapping_destroy(&chunk->mapping);
       free(chunk);
       chunk = next;
@@ -232,8 +234,9 @@ ps5vk_cmd_buffer_table(struct ps5vk_cmd_buffer *cmd_buffer, size_t bytes, size_t
       /* The device's list is what the runner's capture reads. */
       struct ps5vk_device *const device =
          container_of(cmd_buffer->vk.base.device, struct ps5vk_device, vk);
-      node->next_in_device = device->table_chunks;
-      device->table_chunks = node;
+      mtx_lock(&device->tracked_lock);
+      list_add(&node->device_link, &device->table_chunks);
+      mtx_unlock(&device->tracked_lock);
    }
 }
 
@@ -506,19 +509,21 @@ uint32_t
 ps5vk_debug_table_chunks(VkDevice _device, ps5vk_debug_stage *chunks, uint32_t capacity)
 {
    VK_FROM_HANDLE(ps5vk_device, device, _device);
-   uint32_t count = 0;
-   for (const struct ps5vk_table_chunk *chunk = device ? device->table_chunks : NULL;
-        chunk != NULL; chunk = chunk->next_in_device)
-      count++;
-   if (chunks == NULL || capacity == 0)
-      return count;
-   uint32_t at = 0;
-   for (const struct ps5vk_table_chunk *chunk = device ? device->table_chunks : NULL;
-        chunk != NULL && at < capacity; chunk = chunk->next_in_device) {
-      chunks[at++] = (ps5vk_debug_stage){
-         .address = chunk->mapping.address,
-         .bytes = chunk->mapping.bytes,
-      };
+   if (device == NULL)
+      return 0;
+   mtx_lock(&device->tracked_lock);
+   const uint32_t count = list_length(&device->table_chunks);
+   if (chunks != NULL && capacity != 0) {
+      uint32_t at = 0;
+      list_for_each_entry(struct ps5vk_table_chunk, chunk, &device->table_chunks, device_link) {
+         if (at == capacity)
+            break;
+         chunks[at++] = (ps5vk_debug_stage){
+            .address = chunk->mapping.address,
+            .bytes = chunk->mapping.bytes,
+         };
+      }
    }
+   mtx_unlock(&device->tracked_lock);
    return count;
 }

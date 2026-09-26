@@ -9811,3 +9811,21 @@ attribute3 declares 0x80040 (PID 262, with sce_sys/param-runner-hfr.json); the
 plain runner is refused it (PIDs 260 and 261). No 50 or 100 Hz output is
 reachable this way, and PAL games stay paced on 119.88 Hz
 (jobs/r92-output-modes).
+
+## 2026-09-26 — R93: the device's tracked lists under a lock; a 120 Hz output checked
+
+A tester's RetroArch trace had PPSSPP crash twice in vkDestroyBuffer, walking
+the device's list of live buffers into a freed buffer's reused memory. The
+device's three lists for the runner's capture -- buffers, table chunks,
+pipelines with stage mappings -- were changed without a lock, and Vulkan lets
+those objects be created and destroyed from any thread. They are Mesa lists
+under the device's `tracked_lock` now, with O(1) removal. The new
+vk_r93_threads_test (four threads, 16,000 buffers) passes; on the old driver it
+spun forever on a list that had become a cycle.
+
+The same trace ran every core at exactly half speed with V-Sync on: the console
+accepted 119.88 Hz while the display went on refreshing at 60 Hz. The driver now
+times six vblanks after configuring the high-frame-rate mode and restores
+59.94 Hz above 12.5 ms a vblank; mine measures 8.345 ms and keeps 119.88 Hz.
+R90's battery with R90's and R91's cases passes 31 of 31 (PID 290).
+jobs/r93-tracked-lists.

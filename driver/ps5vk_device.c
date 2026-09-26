@@ -80,6 +80,10 @@ ps5vk_CreateDevice(VkPhysicalDevice physicalDevice, const VkDeviceCreateInfo *pC
       return result;
    }
    device->vk.command_buffer_ops = &ps5vk_cmd_buffer_ops;
+   mtx_init(&device->tracked_lock, mtx_plain);
+   list_inithead(&device->stages);
+   list_inithead(&device->table_chunks);
+   list_inithead(&device->buffers);
    /* Mesa owns the deep copies for deferred secondary commands. Replay them
     * into the primary, where its render pass supplies the actual attachments. */
    vk_device_dispatch_table_from_entrypoints(&device->command_dispatch,
@@ -97,6 +101,7 @@ ps5vk_CreateDevice(VkPhysicalDevice physicalDevice, const VkDeviceCreateInfo *pC
       assert(info->queueFamilyIndex == 0 && info->queueCount == 1 && !device->queue_initialized);
       result = ps5vk_queue_init(device, &device->queue, info);
       if (result != VK_SUCCESS) {
+         mtx_destroy(&device->tracked_lock);
          vk_device_finish(&device->vk);
          vk_free2(instance_alloc, pAllocator, device);
          return result;
@@ -116,6 +121,7 @@ ps5vk_CreateDevice(VkPhysicalDevice physicalDevice, const VkDeviceCreateInfo *pC
       psbc_shutdown();
       if (device->queue_initialized)
          ps5vk_queue_finish(&device->queue);
+      mtx_destroy(&device->tracked_lock);
       vk_device_finish(&device->vk);
       vk_free2(instance_alloc, pAllocator, device);
       return result;
@@ -139,6 +145,7 @@ ps5vk_DestroyDevice(VkDevice _device, const VkAllocationCallbacks *pAllocator)
     * next launch finds every pipeline this one compiled. */
    ps5vk_shader_cache_flush();
    psbc_shutdown();
+   mtx_destroy(&device->tracked_lock);
    vk_device_finish(&device->vk);
    vk_free(&device->vk.alloc, device);
 }

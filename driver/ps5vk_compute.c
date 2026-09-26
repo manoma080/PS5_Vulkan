@@ -304,8 +304,9 @@ static VkResult ps5vk_compute_pipeline_compile(struct ps5vk_device *device,
    memcpy(pipeline->compute.local_size, local_size, sizeof(local_size));
    /* The runner's capture logs the mapping this dispatch points at, exactly as
      * it logs a graphics pipeline's stage workspace. */
-   pipeline->next_stage = device->stages;
-   device->stages = pipeline;
+   mtx_lock(&device->tracked_lock);
+   list_add(&pipeline->stage_link, &device->stages);
+   mtx_unlock(&device->tracked_lock);
    pipeline->stage_registered = true;
    pipeline->compute.code_bytes = (uint32_t)code_bytes;
    pipeline->compute.rsrc1 = rsrc1;

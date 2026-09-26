@@ -825,7 +825,8 @@ enum ps5vk_pipeline_stage {
 struct ps5vk_table_chunk {
    struct ps5vk_direct_mapping mapping;
    struct ps5vk_table_chunk *next_in_buffer;
-   struct ps5vk_table_chunk *next_in_device;
+   /* Its place on the device's list, under the device's tracked_lock. */
+   struct list_head device_link;
 };
 
 #define PS5VK_DYNAMIC_UNIFORM_COUNT 8
@@ -1037,16 +1038,24 @@ struct ps5vk_device {
    uint32_t target_attachment_count;
    uint32_t target_base_offsets[PS5VK_MAX_COLOR_TARGETS];
    uint32_t target_base_values[PS5VK_MAX_COLOR_TARGETS];
+   /* The three lists below are the device's, not an object's: buffers, command
+    * buffers and pipelines are created and destroyed from any thread, which
+    * Vulkan allows without the application synchronising the device, so each
+    * change to a list and each walk of one holds this lock. Unlocked, two
+    * threads' changes lost a link and a later walk followed a freed buffer's
+    * reused memory (a tester's PPSSPP crashes in vkDestroyBuffer, faulting at
+    * 0x72 and 0xf0). */
+   mtx_t tracked_lock;
    /* The pipelines whose stage mapping exists, newest first: what
     * ps5vk_debug_pipeline_stages reports to the runner's capture. */
-   struct ps5vk_pipeline *stages;
+   struct list_head stages;
    /* The command buffers' table chunks, newest first: where the register
     * tables a submission names live (ps5vk_debug_table_chunks). */
-   struct ps5vk_table_chunk *table_chunks;
+   struct list_head table_chunks;
    /* The live buffers, newest first: the addresses a submission names, which
     * a capture has to carry so a PC rebuild can pin them
     * (ps5vk_debug_buffers). */
-   struct ps5vk_buffer *buffers;
+   struct list_head buffers;
 };
 
 /* One direct-memory allocation, mapped for the CPU and the GPU while it lives. */
@@ -1066,9 +1075,9 @@ struct ps5vk_buffer {
    struct vk_buffer vk;
    /* The memory the buffer is bound to, or NULL before it is bound. */
    struct ps5vk_device_memory *memory;
-   /* The device's live buffers, newest first, for the runner's capture
-    * (ps5vk_debug.h, ps5vk_debug_buffers). */
-   struct ps5vk_buffer *next_in_device;
+   /* Its place on the device's live buffers, for the runner's capture
+    * (ps5vk_debug.h, ps5vk_debug_buffers), under the device's tracked_lock. */
+   struct list_head device_link;
 };
 
 /* A view of a buffer's bytes as texels (vkCreateBufferView, ps5vk_buffer.c):
@@ -1682,10 +1691,11 @@ struct ps5vk_pipeline {
        * the driver inferred the size from that). */
       bool wave32;
    } compute;
-   /* The device's list of pipelines whose stage mapping exists, in creation
-    * order, which ps5vk_debug_pipeline_stages walks for the runner's capture. */
+   /* Its place on the device's list of pipelines whose stage mapping exists,
+    * which ps5vk_debug_pipeline_stages walks for the runner's capture, under
+    * the device's tracked_lock. */
    bool stage_registered;
-   struct ps5vk_pipeline *next_stage;
+   struct list_head stage_link;
 };
 
 /* VideoOut's registered framebuffers, the most images a swapchain has (R74). */

@@ -173,11 +173,9 @@ ps5vk_pipeline_free(struct ps5vk_device *device, struct ps5vk_pipeline *pipeline
 {
    /* A pipeline that never drew has no stage mapping registered. */
    if (pipeline->stage_registered) {
-      struct ps5vk_pipeline **at = &device->stages;
-      while (*at != NULL && *at != pipeline)
-         at = &(*at)->next_stage;
-      if (*at == pipeline)
-         *at = pipeline->next_stage;
+      mtx_lock(&device->tracked_lock);
+      list_del(&pipeline->stage_link);
+      mtx_unlock(&device->tracked_lock);
       pipeline->stage_registered = false;
    }
    for (unsigned stage = 0; stage < PS5VK_PIPELINE_STAGE_COUNT; stage++)
@@ -1468,8 +1466,9 @@ ps5vk_pipeline_create_shaders(struct ps5vk_device *device, struct ps5vk_pipeline
    /* The runner's capture logs these mappings: a PC rebuild replays what AGC
     * wrote here, and a pipeline the capture does not carry cannot be modelled
     * (ps5vk_debug.h, ps5vk_debug_pipeline_stages). */
-   pipeline->next_stage = device->stages;
-   device->stages = pipeline;
+   mtx_lock(&device->tracked_lock);
+   list_add(&pipeline->stage_link, &device->stages);
+   mtx_unlock(&device->tracked_lock);
    pipeline->stage_registered = true;
    return VK_SUCCESS;
 }
@@ -1478,17 +1477,16 @@ uint32_t
 ps5vk_debug_pipeline_stages(VkDevice _device, ps5vk_debug_stage *stages, uint32_t capacity)
 {
    VK_FROM_HANDLE(ps5vk_device, device, _device);
-   uint32_t count = 0;
-   for (struct ps5vk_pipeline *pipeline = device ? device->stages : NULL; pipeline != NULL;
-        pipeline = pipeline->next_stage)
-      count++;
-   if (stages == NULL || capacity == 0)
-      return count;
+   if (device == NULL)
+      return 0;
+   mtx_lock(&device->tracked_lock);
+   const uint32_t count = list_length(&device->stages);
    /* The list is newest first; the caller logs creation order, which is the
     * order the pipelines linked their stages. */
-   uint32_t at = MIN2(count, capacity);
-   for (struct ps5vk_pipeline *pipeline = device->stages; pipeline != NULL && at > 0;
-        pipeline = pipeline->next_stage) {
+   uint32_t at = stages != NULL ? MIN2(count, capacity) : 0;
+   list_for_each_entry(struct ps5vk_pipeline, pipeline, &device->stages, stage_link) {
+      if (at == 0)
+         break;
       at--;
       /* A compute pipeline has no AGC stage workspace: its mapping is the
        * compiled ISA the dispatch points at (Phase D2). */
@@ -1500,6 +1498,7 @@ ps5vk_debug_pipeline_stages(VkDevice _device, ps5vk_debug_stage *stages, uint32_
          .bytes = mapping->bytes,
       };
    }
+   mtx_unlock(&device->tracked_lock);
    return count;
 }
 

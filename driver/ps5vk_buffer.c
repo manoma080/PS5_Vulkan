@@ -37,8 +37,9 @@ ps5vk_CreateBuffer_untimed(VkDevice _device, const VkBufferCreateInfo *pCreateIn
       return vk_error(device, VK_ERROR_OUT_OF_HOST_MEMORY);
 
    /* The device's list is what the runner's capture reads. */
-   buffer->next_in_device = device->buffers;
-   device->buffers = buffer;
+   mtx_lock(&device->tracked_lock);
+   list_add(&buffer->device_link, &device->buffers);
+   mtx_unlock(&device->tracked_lock);
    *pBuffer = ps5vk_buffer_to_handle(buffer);
    return VK_SUCCESS;
 }
@@ -62,11 +63,9 @@ ps5vk_DestroyBuffer(VkDevice _device, VkBuffer _buffer, const VkAllocationCallba
    if (buffer) {
       /* The device's list is what the runner's capture reads, so a buffer
        * that goes away leaves it. */
-      struct ps5vk_buffer **at = &device->buffers;
-      while (*at != NULL && *at != buffer)
-         at = &(*at)->next_in_device;
-      if (*at == buffer)
-         *at = buffer->next_in_device;
+      mtx_lock(&device->tracked_lock);
+      list_del(&buffer->device_link);
+      mtx_unlock(&device->tracked_lock);
       vk_buffer_destroy(&device->vk, pAllocator, &buffer->vk);
    }
 }
@@ -131,30 +130,34 @@ uint32_t
 ps5vk_debug_buffers(VkDevice _device, ps5vk_debug_stage *buffers, uint32_t capacity)
 {
    VK_FROM_HANDLE(ps5vk_device, device, _device);
+   if (device == NULL)
+      return 0;
+   mtx_lock(&device->tracked_lock);
    uint32_t count = 0;
-   for (const struct ps5vk_buffer *buffer = device ? device->buffers : NULL; buffer != NULL;
-        buffer = buffer->next_in_device) {
+   list_for_each_entry(struct ps5vk_buffer, buffer, &device->buffers, device_link) {
       ps5vk_debug_stage region;
       if (ps5vk_buffer_region(buffer, &region))
          count++;
    }
-   if (buffers == NULL || capacity == 0)
-      return count;
-   /* The device's list is newest first, and the capture wants the order the
-    * allocations were made in instead: a replay hands a region to the first
-    * allocation of its size, so two buffers of the same size only come back to
-    * the addresses the console gave them when the oldest is listed first
-    * (tools/golden.py, a driver run's replay). */
-   uint32_t at = count;
-   for (const struct ps5vk_buffer *buffer = device ? device->buffers : NULL;
-        buffer != NULL && at > 0; buffer = buffer->next_in_device) {
-      ps5vk_debug_stage region;
-      if (!ps5vk_buffer_region(buffer, &region))
-         continue;
-      at--;
-      if (at < capacity)
-         buffers[at] = region;
+   if (buffers != NULL && capacity != 0) {
+      /* The device's list is newest first, and the capture wants the order the
+       * allocations were made in instead: a replay hands a region to the first
+       * allocation of its size, so two buffers of the same size only come back
+       * to the addresses the console gave them when the oldest is listed first
+       * (tools/golden.py, a driver run's replay). */
+      uint32_t at = count;
+      list_for_each_entry(struct ps5vk_buffer, buffer, &device->buffers, device_link) {
+         ps5vk_debug_stage region;
+         if (at == 0)
+            break;
+         if (!ps5vk_buffer_region(buffer, &region))
+            continue;
+         at--;
+         if (at < capacity)
+            buffers[at] = region;
+      }
    }
+   mtx_unlock(&device->tracked_lock);
    return count;
 }
 

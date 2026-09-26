@@ -516,9 +516,47 @@ ps5vk_output_close(void)
    ps5vk_output = NULL;
 }
 
+/* The vblanks timed after the high-frame-rate mode is configured, and the
+ * period above which the output is not refreshing at 119.88 Hz: halfway
+ * between the 8.342 ms and 16.683 ms R92 measured for the two modes. */
+#define PS5VK_OUTPUT_CHECK_INTERVALS 6
+#define PS5VK_OUTPUT_HIGH_REFRESH_LIMIT_NS UINT64_C(12500000)
+
+/* The output's refresh period in nanoseconds: the median of a few intervals
+ * between bare vblank waits, the first wait only finding the phase. 0 when a
+ * wait fails. */
+static uint64_t
+ps5vk_output_vblank_period_ns(int handle)
+{
+   uint64_t intervals[PS5VK_OUTPUT_CHECK_INTERVALS];
+   if (sceVideoOutWaitVblank(handle) != 0)
+      return 0;
+   uint64_t previous = os_time_get_nano();
+   for (unsigned at = 0; at < PS5VK_OUTPUT_CHECK_INTERVALS; at++) {
+      if (sceVideoOutWaitVblank(handle) != 0)
+         return 0;
+      const uint64_t now = os_time_get_nano();
+      intervals[at] = now - previous;
+      previous = now;
+   }
+   for (unsigned i = 1; i < PS5VK_OUTPUT_CHECK_INTERVALS; i++)
+      for (unsigned j = i; j > 0 && intervals[j - 1] > intervals[j]; j--) {
+         const uint64_t swap = intervals[j];
+         intervals[j] = intervals[j - 1];
+         intervals[j - 1] = swap;
+      }
+   return intervals[PS5VK_OUTPUT_CHECK_INTERVALS / 2];
+}
+
 /* Opens VideoOut and, when asked, configures its high-frame-rate output on the
  * fresh handle, before the flip rate, which is where the console accepted it. A
  * refusal is not an error: the output presents at 59.94 Hz, and says so once.
+ *
+ * An accepted mode is not yet a 120 Hz output. A tester's console accepted it
+ * and its display went on refreshing at 60 Hz -- RetroArch then showed each
+ * frame twice for 119.88 Hz and every core ran at exactly half speed with
+ * V-Sync on -- so the vblank period is timed here, and an output that does not
+ * refresh at 119.88 Hz is put back to 59.94 Hz before any mode is reported.
  * NULL when VideoOut does not open. */
 static struct ps5vk_video_out *
 ps5vk_output_open_handle(bool high_frame_rate)
@@ -541,12 +579,27 @@ ps5vk_output_open_handle(bool high_frame_rate)
                             video->handle, PS5VK_VIDEO_OUT_MODE_HIGH_FRAME_RATE, NULL, NULL, NULL)
                        : supported;
       video->high_frame_rate = configured == 0;
-      char line[160];
-      snprintf(line, sizeof(line),
-               configured == 0 ? "[ps5vk] output: 119.88 Hz selected\n"
-               : supported > 0 ? "[ps5vk] output: 119.88 Hz refused (0x%08x); presenting at 59.94 Hz\n"
-                               : "[ps5vk] output: 119.88 Hz not supported (%d); presenting at 59.94 Hz\n",
-               configured);
+      char line[200];
+      if (configured == 0) {
+         const uint64_t period = ps5vk_output_vblank_period_ns(video->handle);
+         if (period > PS5VK_OUTPUT_HIGH_REFRESH_LIMIT_NS) {
+            const int restored = sceVideoOutConfigureOutput(
+               video->handle, PS5VK_VIDEO_OUT_MODE_RESTORE, NULL, NULL, NULL);
+            video->high_frame_rate = false;
+            snprintf(line, sizeof(line),
+                     "[ps5vk] output: 119.88 Hz accepted, but a vblank comes every %.3f ms; "
+                     "the display is not refreshing at 120 Hz, so 59.94 Hz is restored (0x%08x)\n",
+                     (double)period / 1e6, (unsigned)restored);
+         } else {
+            snprintf(line, sizeof(line), "[ps5vk] output: 119.88 Hz selected, a vblank every %.3f ms\n",
+                     (double)period / 1e6);
+         }
+      } else {
+         snprintf(line, sizeof(line),
+                  supported > 0 ? "[ps5vk] output: 119.88 Hz refused (0x%08x); presenting at 59.94 Hz\n"
+                                : "[ps5vk] output: 119.88 Hz not supported (%d); presenting at 59.94 Hz\n",
+                  configured);
+      }
       fputs(line, stderr);
    }
    return video;

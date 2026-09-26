@@ -104,6 +104,7 @@ tests=(
     v0_subpass
     r83_depth_stencil
     r84_multiview
+    r93_threads
 )
 # Negative tests: name, and the host variable that breaks the rule it checks
 # unless the test sets it itself (b3_window).
