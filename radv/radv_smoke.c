@@ -471,9 +471,9 @@ enum { TARGET_SIZE = 256 };
 /* Draws vertex_count vertices with the stages into a cleared blue 256-square
  * RGBA8 target and reads the target back into readback. */
 static bool
-render_readback(struct context *c, const char *what, const VkPipelineShaderStageCreateInfo *stages,
-                uint32_t stage_count, VkPrimitiveTopology topology, uint32_t patch_points, uint32_t vertex_count,
-                struct buffer *readback)
+render_readback_with(struct context *c, const char *what, const VkPipelineShaderStageCreateInfo *stages,
+                     uint32_t stage_count, VkPrimitiveTopology topology, uint32_t patch_points,
+                     uint32_t vertex_count, struct buffer *readback, VkBuffer storage)
 {
    const VkFormat format = VK_FORMAT_R8G8B8A8_UNORM;
    VkImage image = VK_NULL_HANDLE;
@@ -481,6 +481,9 @@ render_readback(struct context *c, const char *what, const VkPipelineShaderStage
    VkImageView view = VK_NULL_HANDLE;
    VkPipelineLayout layout = VK_NULL_HANDLE;
    VkPipeline pipeline = VK_NULL_HANDLE;
+   VkDescriptorSetLayout set_layout = VK_NULL_HANDLE;
+   VkDescriptorPool pool = VK_NULL_HANDLE;
+   VkDescriptorSet set = VK_NULL_HANDLE;
    memset(readback->map, 0, TARGET_SIZE * TARGET_SIZE * 4);
    const VkImageCreateInfo image_info = {
       .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
@@ -515,7 +518,53 @@ render_readback(struct context *c, const char *what, const VkPipelineShaderStage
       .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
    };
    ok = ok && vkCreateImageView(c->device, &view_info, NULL, &view) == VK_SUCCESS;
-   const VkPipelineLayoutCreateInfo layout_info = {.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+   if (storage) {
+      /* One storage buffer at set 0, binding 0, for every graphics stage. */
+      const VkDescriptorSetLayoutBinding binding = {
+         .binding = 0,
+         .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+         .descriptorCount = 1,
+         .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS,
+      };
+      const VkDescriptorSetLayoutCreateInfo set_info = {
+         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+         .bindingCount = 1,
+         .pBindings = &binding,
+      };
+      const VkDescriptorPoolSize size = {.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1};
+      const VkDescriptorPoolCreateInfo pool_info = {
+         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+         .maxSets = 1,
+         .poolSizeCount = 1,
+         .pPoolSizes = &size,
+      };
+      ok = ok && vkCreateDescriptorSetLayout(c->device, &set_info, NULL, &set_layout) == VK_SUCCESS &&
+           vkCreateDescriptorPool(c->device, &pool_info, NULL, &pool) == VK_SUCCESS;
+      const VkDescriptorSetAllocateInfo set_alloc = {
+         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+         .descriptorPool = pool,
+         .descriptorSetCount = 1,
+         .pSetLayouts = &set_layout,
+      };
+      ok = ok && vkAllocateDescriptorSets(c->device, &set_alloc, &set) == VK_SUCCESS;
+      if (ok) {
+         const VkDescriptorBufferInfo buffer_info = {.buffer = storage, .offset = 0, .range = VK_WHOLE_SIZE};
+         const VkWriteDescriptorSet write = {
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = set,
+            .dstBinding = 0,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .pBufferInfo = &buffer_info,
+         };
+         vkUpdateDescriptorSets(c->device, 1, &write, 0, NULL);
+      }
+   }
+   const VkPipelineLayoutCreateInfo layout_info = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+      .setLayoutCount = storage ? 1 : 0,
+      .pSetLayouts = &set_layout,
+   };
    ok = ok && vkCreatePipelineLayout(c->device, &layout_info, NULL, &layout) == VK_SUCCESS;
    const VkPipelineVertexInputStateCreateInfo vertex_input = {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
@@ -615,6 +664,8 @@ render_readback(struct context *c, const char *what, const VkPipelineShaderStage
       };
       vkCmdBeginRendering(c->cmd, &rendering);
       vkCmdBindPipeline(c->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+      if (set)
+         vkCmdBindDescriptorSets(c->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &set, 0, NULL);
       const VkViewport viewport = {0.0f, 0.0f, (float)TARGET_SIZE, (float)TARGET_SIZE, 0.0f, 1.0f};
       const VkRect2D scissor = {{0, 0}, {TARGET_SIZE, TARGET_SIZE}};
       vkCmdSetViewport(c->cmd, 0, 1, &viewport);
@@ -648,10 +699,21 @@ render_readback(struct context *c, const char *what, const VkPipelineShaderStage
 
    vkDestroyPipeline(c->device, pipeline, NULL);
    vkDestroyPipelineLayout(c->device, layout, NULL);
+   vkDestroyDescriptorPool(c->device, pool, NULL);
+   vkDestroyDescriptorSetLayout(c->device, set_layout, NULL);
    vkDestroyImageView(c->device, view, NULL);
    vkDestroyImage(c->device, image, NULL);
    vkFreeMemory(c->device, image_memory, NULL);
    return ok;
+}
+
+static bool
+render_readback(struct context *c, const char *what, const VkPipelineShaderStageCreateInfo *stages,
+                uint32_t stage_count, VkPrimitiveTopology topology, uint32_t patch_points, uint32_t vertex_count,
+                struct buffer *readback)
+{
+   return render_readback_with(c, what, stages, stage_count, topology, patch_points, vertex_count, readback,
+                               VK_NULL_HANDLE);
 }
 
 static VkPipelineShaderStageCreateInfo
@@ -830,6 +892,123 @@ test_tessellation(struct context *c)
    buffer_destroy(c, &readback);
 }
 
+/* Points drawn into strips by geometry shaders: every output size from 16 to
+ * 128 vertices at 1, 2 and 4 points, a vertex count chosen from
+ * gl_PrimitiveIDIn, a colour varying, and the IDs the invocations get.
+ * Counts that are not constant go through NGG's workgroup repack. */
+static void
+test_geometry(struct context *c)
+{
+   struct buffer readback;
+   if (!buffer_create(c, TARGET_SIZE * TARGET_SIZE * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT, &readback)) {
+      check(false, "geometry: readback buffer");
+      return;
+   }
+   enum { ROW = TARGET_SIZE * TARGET_SIZE / 4 };
+   VkShaderModule vert = shader(c, radv_smoke_gs_points_vert, sizeof(radv_smoke_gs_points_vert));
+   VkShaderModule frag = shader(c, radv_smoke_frag, sizeof(radv_smoke_frag));
+
+   /* Draws count points with the geometry shader and counts red texels. */
+   #define DRAW_POINTS(vs, gs, fs, count, red)                                                                     \
+      do {                                                                                                     \
+         const VkPipelineShaderStageCreateInfo stages_[3] = {                                                   \
+            stage_info(VK_SHADER_STAGE_VERTEX_BIT, vs),                                                         \
+            stage_info(VK_SHADER_STAGE_GEOMETRY_BIT, gs),                                                       \
+            stage_info(VK_SHADER_STAGE_FRAGMENT_BIT, fs),                                                       \
+         };                                                                                                     \
+         const bool ok_ = render_readback(c, "geometry", stages_, 3, VK_PRIMITIVE_TOPOLOGY_POINT_LIST, 0, count, \
+                                          &readback);                                                           \
+         const uint32_t *const texels_ = readback.map;                                                          \
+         red = 0;                                                                                               \
+         for (uint32_t i_ = 0; ok_ && i_ < TARGET_SIZE * TARGET_SIZE; i_++)                                     \
+            red += texels_[i_] == 0xff0000ffu;                                                                  \
+      } while (0)
+
+   const struct {
+      unsigned vertices;
+      const uint32_t *code;
+      size_t bytes;
+   } shapes[5] = {
+      {16, radv_smoke_gs_16_geom, sizeof(radv_smoke_gs_16_geom)},
+      {32, radv_smoke_gs_32_geom, sizeof(radv_smoke_gs_32_geom)},
+      {64, radv_smoke_gs_64_geom, sizeof(radv_smoke_gs_64_geom)},
+      {100, radv_smoke_gs_100_geom, sizeof(radv_smoke_gs_100_geom)},
+      {128, radv_smoke_gs_128_geom, sizeof(radv_smoke_gs_128_geom)},
+   };
+   unsigned sizes_right = 0;
+   for (unsigned s = 0; s < 5; s++) {
+      VkShaderModule geom = shader(c, shapes[s].code, shapes[s].bytes);
+      const unsigned counts[3] = {1, 2, 4};
+      for (unsigned n = 0; n < 3; n++) {
+         uint32_t red;
+         DRAW_POINTS(vert, geom, frag, counts[n], red);
+         if (red == counts[n] * ROW)
+            sizes_right++;
+         else
+            report("geometry: %u vertices from %u points drew %u texels, not %u", shapes[s].vertices, counts[n], red,
+                   counts[n] * ROW);
+      }
+      vkDestroyShaderModule(c->device, geom, NULL);
+   }
+   check(sizes_right == 15, "geometry: strips of 16 to 128 vertices from 1, 2 and 4 points cover their rows");
+
+   VkShaderModule by_id = shader(c, radv_smoke_gs_primid_geom, sizeof(radv_smoke_gs_primid_geom));
+   VkShaderModule reads_id = shader(c, radv_smoke_gs_primid_fixed_geom, sizeof(radv_smoke_gs_primid_fixed_geom));
+   uint32_t one, two, three, four;
+   DRAW_POINTS(vert, by_id, frag, 1, one);
+   DRAW_POINTS(vert, by_id, frag, 2, two);
+   DRAW_POINTS(vert, reads_id, frag, 1, three);
+   DRAW_POINTS(vert, reads_id, frag, 2, four);
+   if (one != ROW || two != 2 * ROW)
+      report("geometry: a count from gl_PrimitiveIDIn drew %u and %u texels", one, two);
+   check(one == ROW && two == 2 * ROW, "geometry: a vertex count chosen from gl_PrimitiveIDIn draws every strip");
+   check(three == ROW && four == 2 * ROW, "geometry: a shader that may return early draws every strip");
+   vkDestroyShaderModule(c->device, by_id, NULL);
+   vkDestroyShaderModule(c->device, reads_id, NULL);
+
+   VkShaderModule colour_vert = shader(c, radv_smoke_gs_colour_vert, sizeof(radv_smoke_gs_colour_vert));
+   VkShaderModule colour_geom = shader(c, radv_smoke_gs_colour_geom, sizeof(radv_smoke_gs_colour_geom));
+   VkShaderModule colour_frag = shader(c, radv_smoke_colour_frag, sizeof(radv_smoke_colour_frag));
+   uint32_t coloured;
+   DRAW_POINTS(colour_vert, colour_geom, colour_frag, 2, coloured);
+   check(coloured == 2 * ROW, "geometry: a colour passes from the vertex shader to the fragment shader");
+   vkDestroyShaderModule(c->device, colour_vert, NULL);
+   vkDestroyShaderModule(c->device, colour_geom, NULL);
+   vkDestroyShaderModule(c->device, colour_frag, NULL);
+   #undef DRAW_POINTS
+
+   /* The IDs four points' invocations record. */
+   struct buffer record;
+   VkShaderModule record_geom = shader(c, radv_smoke_gs_record_geom, sizeof(radv_smoke_gs_record_geom));
+   bool ids_right = false;
+   if (record_geom && buffer_create(c, 4096, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, &record)) {
+      memset(record.map, 0, 4096);
+      const VkPipelineShaderStageCreateInfo stages[3] = {
+         stage_info(VK_SHADER_STAGE_VERTEX_BIT, vert),
+         stage_info(VK_SHADER_STAGE_GEOMETRY_BIT, record_geom),
+         stage_info(VK_SHADER_STAGE_FRAGMENT_BIT, frag),
+      };
+      const bool ok = render_readback_with(c, "geometry record", stages, 3, VK_PRIMITIVE_TOPOLOGY_POINT_LIST, 0, 4,
+                                           &readback, record.buffer);
+      const uint32_t *const words = record.map;
+      unsigned seen = 0;
+      for (unsigned i = 0; ok && words[0] == 4 && i < 4; i++) {
+         if (words[1 + 2 * i] < 4 && words[2 + 2 * i] == 0)
+            seen |= 1u << words[1 + 2 * i];
+      }
+      ids_right = seen == 0xf;
+      if (!ids_right)
+         report("geometry: %u invocations recorded (%u %u) (%u %u) (%u %u) (%u %u)", words[0], words[1], words[2],
+                words[3], words[4], words[5], words[6], words[7], words[8]);
+      buffer_destroy(c, &record);
+   }
+   check(ids_right, "geometry: four points' invocations get primitive IDs 0 to 3");
+   vkDestroyShaderModule(c->device, record_geom, NULL);
+   vkDestroyShaderModule(c->device, vert, NULL);
+   vkDestroyShaderModule(c->device, frag, NULL);
+   buffer_destroy(c, &readback);
+}
+
 /* -------------------------------------------------------------------- main */
 
 static bool
@@ -895,7 +1074,11 @@ context_create(struct context *c)
       .synchronization2 = VK_TRUE,
       .dynamicRendering = VK_TRUE,
    };
-   const VkPhysicalDeviceFeatures features = {.tessellationShader = VK_TRUE};
+   const VkPhysicalDeviceFeatures features = {
+      .geometryShader = VK_TRUE,
+      .tessellationShader = VK_TRUE,
+      .vertexPipelineStoresAndAtomics = VK_TRUE,
+   };
    const VkDeviceCreateInfo device_info = {
       .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
       .pNext = &features13,
@@ -931,6 +1114,21 @@ int
 main(void)
 {
    const int captured = ps5_klog_capture_stderr("[radv-smoke:stderr] ");
+   /* Optional NAME=VALUE lines for the driver's environment (RADV_DEBUG,
+    * ACO_DEBUG), read before the driver is. */
+   FILE *const env = fopen("/app0/radv-smoke-env.txt", "r");
+   if (env) {
+      char line[256];
+      while (fgets(line, sizeof(line), env)) {
+         line[strcspn(line, "\r\n")] = '\0';
+         char *const equals = strchr(line, '=');
+         if (equals && line[0] != '#') {
+            *equals = '\0';
+            setenv(line, equals + 1, 1);
+         }
+      }
+      fclose(env);
+   }
    results = fopen(RESULTS_PATH, "w");
    report("RADV smoke test starts");
    /* The line below arrives in klog prefixed "[radv-smoke:stderr]" when the
@@ -944,6 +1142,7 @@ main(void)
       test_compute(&c);
       test_triangle(&c);
       test_tessellation(&c);
+      test_geometry(&c);
    }
    if (c.device) {
       vkDeviceWaitIdle(c.device);
