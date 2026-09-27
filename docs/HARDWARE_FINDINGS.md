@@ -3502,3 +3502,13 @@ After the title's startup sets MXCSR 0x1f80 (the console starts it at
 thread it creates read 0x1f80 (the RADV smoke title's check). With it the
 CTS's double-precision reference intervals keep denormals, and the 40
 dEQP-VK.glsl.builtin.precision_double cases that failed pass.
+
+## 2026-09-27 — a compute wave's TG_SIZE carries no GFX10.3 wave ID (RADV)
+
+In a compute workgroup of 128 invocations running wave64, every wave found
+subgroup ID 0 in TG_SIZE's bits 20-24, where GFX10.3 puts the wave's index
+(dEQP-VK.subgroups.multiple_dispatches.uniform_subgroup_size: one subgroup
+counted where two ran; subgroup ballot in compute failed too). The ordered
+wave ID in bits 6-11, which GFX6-10 use, is right: with it those cases pass,
+and so do the GPU acceleration structure builds that had written far past
+their buffers, whose radix sort indexes shared memory by subgroup ID.

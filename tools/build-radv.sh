@@ -21,7 +21,7 @@ set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 mesa_fork="${PS5_MESA_FORK:-$root/../PS5_Mesa}"
-mesa_revision=5fe0a5e01214f4ed672e773ac2116909887b721b
+mesa_revision=58be0082f7d29063f3dd8420f5c2ffd2f726e0f9
 sdk="$root/.deps/native/ps5-payload-sdk"
 source_tree="$root/.deps/work/radv-src"
 build="$root/.deps/work/radv-build-ps5"
