@@ -53,6 +53,26 @@ if [[ ! -f $source_tree/.revision || $(<"$source_tree/.revision") != "$mesa_revi
     printf '%s\n' "$mesa_revision" > "$source_tree/.revision"
 fi
 
+# poly's kernels (geometry shaders run as compute) are OpenCL C that mesa_clc
+# and vtn_bindgen2 compile at build time: host tools from the same revision,
+# built natively against the host's LLVM, Clang, libclc and SPIR-V translator.
+clc_build="$root/.deps/work/radv-clc-build"
+clc_bin="$root/.deps/work/radv-clc-bin"
+if [[ ! -f $clc_build/build.ninja ]]; then
+    "$meson" setup "$clc_build" "$source_tree" -Dbuildtype=release -Dmesa-clc=enabled -Dinstall-mesa-clc=true \
+        -Dgallium-drivers= -Dvulkan-drivers= -Dplatforms= -Dglx=disabled -Degl=disabled -Dgbm=disabled \
+        -Dopengl=false -Dgles1=disabled -Dgles2=disabled -Dllvm=enabled -Dshared-llvm=enabled \
+        -Dbuild-tests=false -Dvalgrind=disabled -Dlibunwind=disabled -Dzstd=disabled -Dxmlconfig=disabled \
+        -Dtools= > "$clc_build.setup.log" 2>&1 ||
+        { tail -20 "$clc_build.setup.log" >&2; exit 1; }
+fi
+"$ninja" -C "$clc_build" src/compiler/clc/mesa_clc src/compiler/spirv/vtn_bindgen2 > "$clc_build.log" 2>&1 ||
+    { grep -E "error|FAILED" "$clc_build.log" | head -20 >&2; exit 1; }
+mkdir -p "$clc_bin"
+ln -sf "$clc_build/src/compiler/clc/mesa_clc" "$clc_bin/mesa_clc"
+ln -sf "$clc_build/src/compiler/spirv/vtn_bindgen2" "$clc_bin/vtn_bindgen2"
+export PATH="$clc_bin:$PATH"
+
 constants="$root/.deps/work/radv-cross-constants.ini"
 printf "[constants]\nsdk = '%s'\n" "$sdk" > "$constants"
 if [[ ! -f $build/build.ninja ]]; then
@@ -64,12 +84,13 @@ if [[ ! -f $build/build.ninja ]]; then
         -Dglx=disabled -Degl=disabled -Dgbm=disabled -Dopengl=false -Dgles1=disabled -Dgles2=disabled \
         -Dvalgrind=disabled -Dlibunwind=disabled -Dzstd=disabled -Dzlib=disabled -Dexpat=disabled \
         -Dxmlconfig=disabled -Dshader-cache=disabled -Dbuild-tests=false -Dvulkan-layers= -Dtools= \
-        -Dradv-build-id="$mesa_revision" > "$build.setup.log" 2>&1 ||
+        -Dmesa-clc=system -Dradv-build-id="$mesa_revision" > "$build.setup.log" 2>&1 ||
         { tail -20 "$build.setup.log" >&2; exit 1; }
-elif [[ $(cat "$build/.radv-build-id" 2>/dev/null) != "$mesa_revision" ]]; then
-    "$meson" configure "$build" -Dradv-build-id="$mesa_revision" > "$build.setup.log" 2>&1 ||
+elif [[ $(cat "$build/.radv-build-id" 2>/dev/null) != "$mesa_revision" || ! -f $build/.radv-clc-system ]]; then
+    "$meson" configure "$build" -Dmesa-clc=system -Dradv-build-id="$mesa_revision" > "$build.setup.log" 2>&1 ||
         { tail -20 "$build.setup.log" >&2; exit 1; }
 fi
+: > "$build/.radv-clc-system"
 printf '%s\n' "$mesa_revision" > "$build/.radv-build-id"
 "$ninja" -C "$build" src/amd/vulkan/libvulkan_radeon.a > "$build.log" 2>&1 ||
     { grep -E "error|FAILED" "$build.log" | head -20 >&2; exit 1; }
