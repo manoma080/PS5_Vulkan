@@ -262,3 +262,23 @@ Both of the last two need a geometry shader the hardware cannot run, so the
 plan is to run those geometry shaders as compute: Mesa's `src/poly` (Asahi's
 and KosmicKrisp's geometry and tessellation lowering, with ordered prefix
 sums for transform feedback) for exactly the pipelines NGG cannot serve.
+
+## 2026-09-27 — pipeline executable properties, memory streams
+
+main-1's pipeline group crashed the CTS title in every
+executable_properties.*internal_representations case (NULL in strlen): RADV
+counted an Assembly representation it had not got (ACO disassembles through
+LLVM, which this build does not have) and passed the missing ACO IR text to
+strlen. The IR was missing because the platform's open_memstream was an ENOSYS
+stub. Three fixes, each general:
+
+- RADV counts only the representations it has and never reads a missing one
+  (Mesa fork 0210fab).
+- The shared platform layer has a real open_memstream: libc's FILE on a pipe,
+  drained by a reader thread and published through fflush and fclose wraps
+  (PS5_PayloadSDK 2facde3; its PROBE.md has the measurement). The RADV link
+  recipe wraps both.
+- The SDK install moves a new revision into place by content (8f5341f), so a
+  one-file platform change no longer rebuilds the whole CTS.
+
+All 42 dEQP-VK.pipeline.*.executable_properties cases pass (run execprops-3).

@@ -1,6 +1,7 @@
 # Geometry shaders the hardware cannot run (RADV, route B)
 
-_Design, 2026-09-27. Not started; main-1 is triaged first._
+_Design, 2026-09-27. Build wiring done on the Mesa fork's branch
+ps5-gs-compute (16df662); slice 1 under way._
 
 ## Why
 
@@ -53,6 +54,29 @@ and Clang 22, libclc, the SPIR-V LLVM translator and SPIRV-Tools; a native
 build of the two tools takes about 30 s). The PS5 cross build then uses them
 with `-Dmesa-clc=system` and builds poly for RADV. Checked: the fork's poly
 kernels compile to SPIR-V and bind with those tools (2026-09-27).
+
+## Shape in RADV
+
+Follow poly's model whole, as Asahi does: the vertex stage runs as a compute
+dispatch over the unrolled vertex stream (poly's GS reads its inputs by
+position in that stream, which a hardware VS, seeing only index values, cannot
+give), then the GS count pass, the prefix sum, the pre-GS setup and the GS
+proper as compute, all fed the graphics state's descriptors, push constants
+and vertex buffers. The pipeline's hardware vertex stage becomes poly's
+rasterization copy shader, reading the GS output, with the application's
+fragment shader. Direct draws size poly's parameter blocks and buffers on the
+CPU from the command buffer's upload pool; indirect draws use a GPU heap and
+a setup kernel.
+
+Built in vertical slices, each proved on the console before the next:
+
+1. A VS and GS pipeline, direct non-indexed draws, forced through compute by
+   a debug switch and checked by the smoke title's geometry checks (known
+   answers from the NGG path).
+2. Indexed, instanced and indirect draws; primitive restart.
+3. Transform feedback and its queries (the target).
+4. Graphics pipeline libraries and shader objects.
+5. Tessellation, with poly's tessellator.
 
 ## Order of work
 

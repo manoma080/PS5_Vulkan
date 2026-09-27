@@ -37,6 +37,10 @@ radv_link_recipe() {
     # memory (the platform's thread wraps), for RADV's, the CTS's and libc++'s
     # alike; join and detach free the stacks.
     radv_link_flags=(--wrap=pthread_create --wrap=pthread_join --wrap=pthread_detach)
+    # The platform's open_memstream publishes its buffer at fflush and fclose
+    # (src/memstream.c in the SDK fork's platform layer): Mesa's u_memstream,
+    # RADV's recorded shader IR among its users.
+    radv_link_flags+=(--wrap=fclose --wrap=fflush)
     local name
     # Every allocation the title makes goes to the platform's heap in direct
     # memory (ps5platform/heap.h): libc's private heap ran out under the CTS's
