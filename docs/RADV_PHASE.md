@@ -457,3 +457,26 @@ caused, is in [CTS_GAPS.md](CTS_GAPS.md).
    a PS5 game, models sceAgcDriverSubmitAcb as a queue number (0x20 to 0x57)
    and the description sceAgcDriverSubmitDcb takes. None of this is console
    evidence; a probe of that submission is designed and not run yet.
+
+## 2026-09-27 — the GFX1013 traits gate; four branches in ps5-port
+
+The large traits gate (traits-large-1, 253,264 cases: every group the nine
+consolidated traits and the HTILE and revision fields bear on) ran the
+consolidation of ps5-gfx1013-traits against main-1: none worse, 9,551 from
+a failure to a pass or not supported, 230,153 the same. The other 13,560
+changes are all fragment barycentrics and variable-rate shading, which main-1
+still reported for part of its run and which were switched off for measured
+reasons before this gate.
+
+ps5-port now carries, in this order: the ray traversal fix, geometry shaders
+as compute (with b26797e, the push constants of the rasterization copy),
+placed maps with the honest queue and conformance reports, acceleration
+structures and ray queries reported by default (their gate was rq-full-1),
+and the traits consolidation (c40a45e), whose one conflict, the ray tracing
+line it replaced, resolves to reporting the BVH instruction. The host-model
+profile of that tip differs from the one without the traits only in the
+build-derived UUIDs. The CTS title links the main checkout's build, so the
+next CTS title is this tip.
+
+tools/build-radv.sh builds mesa_clc and vtn_bindgen2 from the pinned
+revision, since poly's kernels need them.
