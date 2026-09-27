@@ -298,3 +298,9 @@ All 42 dEQP-VK.pipeline.*.executable_properties cases pass (run execprops-3).
 - Open, from main-1's pipeline group: VK_EXT_sample_locations, whose
   verify_location cases fail for custom and standard locations alike in every
   construction type.
+
+Correction to the entry above: VK_EXT_sample_locations was not open. Its
+verify_location cases tell each sample's triangle apart by gl_PrimitiveID
+with no stage writing it, so they failed with the implicit primitive ID; on
+the fixed driver all 80 (custom and standard locations, every construction
+type) pass and 20 are not supported (run sampleloc-2).
