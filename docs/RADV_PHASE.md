@@ -233,3 +233,32 @@ run's batches.log. On the gated driver the fragment_shading_rate cases (every
 50th of the group) report the extension unsupported, and dEQP-VK.info plus
 api.info, api.device_init and api.feature_info pass or are not supported
 (run vrs-2, 10640 cases).
+
+## 2026-09-27 — capture and replay, shader objects, transform feedback
+
+- **Capture and replay** is no longer reported. The winsys cannot place a
+  buffer at a requested address and refused every replay address, yet
+  bufferDeviceAddressCaptureReplay was reported: all 723 replay cases of
+  binding_model.buffer_device_address failed. `radeon_info.has_replayable_va`
+  now gates every capture and replay feature (Mesa fork 2f26f3a); the replay
+  cases report it unsupported and the info checks pass (run replay-1).
+- **Separately compiled geometry shaders work.** Rerun on the current driver,
+  every shader_object case main-1 had recorded as failing (the link cases
+  with an unlinked GS, the rest device-generated commands) passes or is not
+  supported (run so-1), so that open item is closed.
+- **Transform feedback**, a sample of every 20th case (run xfb-1, 6685
+  cases): streamout from a vertex or tessellation evaluation shader passes
+  (legacy hardware VS streamout runs here), and every case that captures from
+  a geometry shader fails (4460 primitives-generated-query cases, the fuzz
+  geometry cases, multiple streams). A GS here is always NGG, and NGG
+  streamout before GFX11 orders its writes with GDS, which a title cannot
+  reach.
+- **The tessellated GS limits** (tessellation.geometry_interaction.limits,
+  2 cases) need 4 invocations of 256 vertices and 32 invocations: more than
+  one NGG subgroup can hold, and the per-instance mode that splits them hangs
+  with tessellation on GFX10-class hardware.
+
+Both of the last two need a geometry shader the hardware cannot run, so the
+plan is to run those geometry shaders as compute: Mesa's `src/poly` (Asahi's
+and KosmicKrisp's geometry and tessellation lowering, with ordered prefix
+sums for transform feedback) for exactly the pipelines NGG cannot serve.
