@@ -125,6 +125,11 @@ check(bool ok, const char *what)
    X(CmdBeginRendering)                                                                            \
    X(CmdEndRendering)                                                                              \
    X(CmdDraw)                                                                                      \
+   X(CmdDrawIndexed)                                                                               \
+   X(CmdDrawIndirect)                                                                              \
+   X(CmdDrawIndexedIndirect)                                                                       \
+   X(CmdDrawIndirectCount)                                                                         \
+   X(CmdBindIndexBuffer)                                                                           \
    X(CmdSetViewport)                                                                               \
    X(CmdSetScissor)                                                                                \
    X(CreateShaderModule)                                                                           \
@@ -192,6 +197,18 @@ struct context {
    bool barycentric;
    /* VK_KHR_fragment_shading_rate is reported, and its pipeline rate enabled. */
    bool shading_rate;
+   /* How render_readback_with records its draw (test_geometry's draw checks):
+    * directly by default. Indices are 16-bit. */
+   struct {
+      enum { DRAW_DIRECT, DRAW_INDEXED, DRAW_INDIRECT, DRAW_INDEXED_INDIRECT, DRAW_INDIRECT_COUNT } mode;
+      bool restart;
+      VkBuffer indices;
+      VkBuffer args;
+      VkBuffer count;
+      uint32_t first_index;
+      int32_t vertex_offset;
+      uint32_t max_draws;
+   } draw;
 };
 
 static uint32_t
@@ -577,6 +594,7 @@ render_readback_with(struct context *c, const char *what, const VkPipelineShader
    const VkPipelineInputAssemblyStateCreateInfo assembly = {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
       .topology = topology,
+      .primitiveRestartEnable = c->draw.restart,
    };
    const VkPipelineTessellationStateCreateInfo tessellation = {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO,
@@ -677,7 +695,26 @@ render_readback_with(struct context *c, const char *what, const VkPipelineShader
       const VkRect2D scissor = {{0, 0}, {TARGET_SIZE, TARGET_SIZE}};
       vkCmdSetViewport(c->cmd, 0, 1, &viewport);
       vkCmdSetScissor(c->cmd, 0, 1, &scissor);
-      vkCmdDraw(c->cmd, vertex_count, 1, 0, 0);
+      if (c->draw.indices)
+         vkCmdBindIndexBuffer(c->cmd, c->draw.indices, 0, VK_INDEX_TYPE_UINT16);
+      switch (c->draw.mode) {
+      case DRAW_DIRECT:
+         vkCmdDraw(c->cmd, vertex_count, 1, 0, 0);
+         break;
+      case DRAW_INDEXED:
+         vkCmdDrawIndexed(c->cmd, vertex_count, 1, c->draw.first_index, c->draw.vertex_offset, 0);
+         break;
+      case DRAW_INDIRECT:
+         vkCmdDrawIndirect(c->cmd, c->draw.args, 0, c->draw.max_draws, sizeof(VkDrawIndirectCommand));
+         break;
+      case DRAW_INDEXED_INDIRECT:
+         vkCmdDrawIndexedIndirect(c->cmd, c->draw.args, 0, c->draw.max_draws, sizeof(VkDrawIndexedIndirectCommand));
+         break;
+      case DRAW_INDIRECT_COUNT:
+         vkCmdDrawIndirectCount(c->cmd, c->draw.args, 0, c->draw.count, 0, c->draw.max_draws,
+                                sizeof(VkDrawIndirectCommand));
+         break;
+      }
       vkCmdEndRendering(c->cmd);
       const VkImageMemoryBarrier2 to_transfer = {
          .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -1207,6 +1244,121 @@ test_tessellation(struct context *c)
    buffer_destroy(c, &readback);
 }
 
+/* The rows of four a readback covers entirely in red, as a mask. */
+static unsigned
+rows_red(const struct buffer *readback)
+{
+   const uint32_t *const texels = readback->map;
+   unsigned rows = 0;
+   for (unsigned row = 0; row < 4; row++) {
+      bool all = true;
+      for (uint32_t i = row * TARGET_SIZE * TARGET_SIZE / 4; all && i < (row + 1) * TARGET_SIZE * TARGET_SIZE / 4; i++)
+         all = texels[i] == 0xff0000ffu;
+      rows |= (unsigned)all << row;
+   }
+   return rows;
+}
+
+/* Draws with a geometry shader and the recording c->draw names; the rows
+ * covered, or ~0u when the draw failed. */
+static unsigned
+draw_rows(struct context *c, VkShaderModule vert, VkShaderModule geom, VkShaderModule frag,
+          VkPrimitiveTopology topology, uint32_t vertex_count, struct buffer *readback)
+{
+   const VkPipelineShaderStageCreateInfo stages[3] = {
+      stage_info(VK_SHADER_STAGE_VERTEX_BIT, vert),
+      stage_info(VK_SHADER_STAGE_GEOMETRY_BIT, geom),
+      stage_info(VK_SHADER_STAGE_FRAGMENT_BIT, frag),
+   };
+   return render_readback(c, "geometry draws", stages, 3, topology, 0, vertex_count, readback) ? rows_red(readback)
+                                                                                               : ~0u;
+}
+
+/* Geometry shader draws whose indices or counts live in memory, and
+ * triangle strips cut by primitive restart: each covers the rows it names. */
+static void
+test_geometry_draws(struct context *c, struct buffer *readback, VkShaderModule points, VkShaderModule frag)
+{
+   struct buffer indices, args, count;
+   if (!buffer_create(c, 256, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, &indices) ||
+       !buffer_create(c, 256, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, &args) ||
+       !buffer_create(c, 16, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, &count)) {
+      check(false, "geometry draws: buffers");
+      return;
+   }
+   VkShaderModule strip = shader(c, radv_smoke_gs_16_geom, sizeof(radv_smoke_gs_16_geom));
+   VkShaderModule quads = shader(c, radv_smoke_gs_quads_vert, sizeof(radv_smoke_gs_quads_vert));
+   VkShaderModule triangles = shader(c, radv_smoke_gs_triangles_geom, sizeof(radv_smoke_gs_triangles_geom));
+   uint16_t *const index = indices.map;
+   uint32_t *const word = args.map;
+   uint32_t *const counted = count.map;
+   unsigned rows;
+
+   /* Points 1 and 3: indices 0 and 2 after the first, offset by one. */
+   index[0] = 9;
+   index[1] = 0;
+   index[2] = 2;
+   c->draw = (__typeof__(c->draw)){.mode = DRAW_INDEXED, .indices = indices.buffer, .first_index = 1, .vertex_offset = 1};
+   rows = draw_rows(c, points, strip, frag, VK_PRIMITIVE_TOPOLOGY_POINT_LIST, 2, readback);
+   if (rows != 0xa)
+      report("geometry draws: an indexed draw covered rows 0x%x", rows);
+   check(rows == 0xa, "geometry: an indexed draw with a vertex offset draws the points its indices name");
+
+   const VkDrawIndexedIndirectCommand indexed_args = {2, 1, 1, 1, 0};
+   memcpy(word, &indexed_args, sizeof(indexed_args));
+   c->draw = (__typeof__(c->draw)){.mode = DRAW_INDEXED_INDIRECT, .indices = indices.buffer, .args = args.buffer,
+                                   .max_draws = 1};
+   rows = draw_rows(c, points, strip, frag, VK_PRIMITIVE_TOPOLOGY_POINT_LIST, 0, readback);
+   if (rows != 0xa)
+      report("geometry draws: an indexed indirect draw covered rows 0x%x", rows);
+   check(rows == 0xa, "geometry: an indexed indirect draw draws the points its indices name");
+
+   const VkDrawIndirectCommand indirect_args = {2, 1, 1, 0};
+   memcpy(word, &indirect_args, sizeof(indirect_args));
+   c->draw = (__typeof__(c->draw)){.mode = DRAW_INDIRECT, .args = args.buffer, .max_draws = 1};
+   rows = draw_rows(c, points, strip, frag, VK_PRIMITIVE_TOPOLOGY_POINT_LIST, 0, readback);
+   if (rows != 0x6)
+      report("geometry draws: an indirect draw covered rows 0x%x", rows);
+   check(rows == 0x6, "geometry: an indirect draw draws the points its arguments name");
+
+   /* Two draws in memory, point 0 and point 3, and a count of one. */
+   const VkDrawIndirectCommand two[2] = {{1, 1, 0, 0}, {1, 1, 3, 0}};
+   memcpy(word, two, sizeof(two));
+   counted[0] = 1;
+   c->draw = (__typeof__(c->draw)){.mode = DRAW_INDIRECT_COUNT, .args = args.buffer, .count = count.buffer,
+                                   .max_draws = 2};
+   rows = draw_rows(c, points, strip, frag, VK_PRIMITIVE_TOPOLOGY_POINT_LIST, 0, readback);
+   if (rows != 0x1)
+      report("geometry draws: an indirect count draw covered rows 0x%x", rows);
+   check(rows == 0x1, "geometry: an indirect count draw draws only the draws counted");
+
+   /* Two strips of two triangles each, rows 0 and 2, cut by a restart. */
+   const uint16_t strips[9] = {0, 1, 2, 3, 0xffff, 4, 5, 6, 7};
+   memcpy(index, strips, sizeof(strips));
+   c->draw = (__typeof__(c->draw)){.mode = DRAW_INDEXED, .restart = true, .indices = indices.buffer};
+   rows = draw_rows(c, quads, triangles, frag, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP, 9, readback);
+   if (rows != 0x5)
+      report("geometry draws: strips with a restart covered rows 0x%x", rows);
+   check(rows == 0x5, "geometry: primitive restart cuts a triangle strip");
+
+   const VkDrawIndexedIndirectCommand strip_args = {9, 1, 0, 0, 0};
+   memcpy(word, &strip_args, sizeof(strip_args));
+   c->draw = (__typeof__(c->draw)){.mode = DRAW_INDEXED_INDIRECT, .restart = true, .indices = indices.buffer,
+                                   .args = args.buffer, .max_draws = 1};
+   rows = draw_rows(c, quads, triangles, frag, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP, 0, readback);
+   if (rows != 0x5)
+      report("geometry draws: indirect strips with a restart covered rows 0x%x", rows);
+   check(rows == 0x5, "geometry: primitive restart cuts a triangle strip drawn indirectly");
+
+   c->draw = (__typeof__(c->draw)){.mode = DRAW_DIRECT};
+   vkDestroyShaderModule(c->device, strip, NULL);
+   vkDestroyShaderModule(c->device, quads, NULL);
+   vkDestroyShaderModule(c->device, triangles, NULL);
+   buffer_destroy(c, &indices);
+   buffer_destroy(c, &args);
+   buffer_destroy(c, &count);
+}
+
 /* Points drawn into strips by geometry shaders: every output size from 16 to
  * 128 vertices at 1, 2 and 4 points, a vertex count chosen from
  * gl_PrimitiveIDIn, a colour varying, and the IDs the invocations get.
@@ -1291,6 +1443,8 @@ test_geometry(struct context *c)
    vkDestroyShaderModule(c->device, colour_geom, NULL);
    vkDestroyShaderModule(c->device, colour_frag, NULL);
    #undef DRAW_POINTS
+
+   test_geometry_draws(c, &readback, vert, frag);
 
    /* The IDs four points' invocations record. */
    struct buffer record;
@@ -1392,8 +1546,13 @@ context_create(struct context *c)
       .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR,
       .pipelineFragmentShadingRate = VK_TRUE,
    };
+   VkPhysicalDeviceVulkan12Features features12 = {
+      .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+      .drawIndirectCount = VK_TRUE,
+   };
    VkPhysicalDeviceVulkan13Features features13 = {
       .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+      .pNext = &features12,
       .synchronization2 = VK_TRUE,
       .dynamicRendering = VK_TRUE,
    };
