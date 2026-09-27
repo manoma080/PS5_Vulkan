@@ -1004,6 +1004,66 @@ test_shading_rate(struct context *c)
    buffer_destroy(c, &readback);
 }
 
+/* The primitive ID a fragment shader reads when no earlier stage writes it:
+ * the vertex shader (NGG) exports it. Two triangles split the target, the
+ * left one primitive 0 (red), the right one primitive 1 (green). */
+static void
+test_primitive_id(struct context *c)
+{
+   struct buffer readback;
+   if (!buffer_create(c, TARGET_SIZE * TARGET_SIZE * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT, &readback)) {
+      check(false, "primitive ID: readback buffer");
+      return;
+   }
+   VkShaderModule vert = shader(c, radv_smoke_prim_id_vert, sizeof(radv_smoke_prim_id_vert));
+   VkShaderModule frag = shader(c, radv_smoke_prim_id_frag, sizeof(radv_smoke_prim_id_frag));
+   const VkPipelineShaderStageCreateInfo stages[2] = {
+      stage_info(VK_SHADER_STAGE_VERTEX_BIT, vert),
+      stage_info(VK_SHADER_STAGE_FRAGMENT_BIT, frag),
+   };
+   const bool ok = vert && frag &&
+                   render_readback(c, "primitive ID", stages, 2, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, 0, 6, &readback);
+   const uint32_t *const texels = readback.map;
+   unsigned left_red = 0, left_green = 0, right_red = 0, right_green = 0, other = 0;
+   for (unsigned y = 0; ok && y < TARGET_SIZE; y++) {
+      for (unsigned x = 0; x < TARGET_SIZE; x++) {
+         const uint32_t t = texels[y * TARGET_SIZE + x];
+         const bool left = x < TARGET_SIZE / 2;
+         if (t == 0xff0000ffu)
+            left ? left_red++ : right_red++;
+         else if (t == 0xff00ff00u)
+            left ? left_green++ : right_green++;
+         else
+            other++;
+      }
+   }
+   report("primitive ID: left %u red %u green, right %u red %u green, %u other", left_red, left_green, right_red,
+          right_green, other);
+   if (getenv("RADV_SMOKE_PRIM_ID_RAW")) {
+      /* Diagnostic: the raw IDs each side read. */
+      VkShaderModule raw = shader(c, radv_smoke_prim_id_raw_frag, sizeof(radv_smoke_prim_id_raw_frag));
+      const VkPipelineShaderStageCreateInfo raw_stages[2] = {
+         stage_info(VK_SHADER_STAGE_VERTEX_BIT, vert),
+         stage_info(VK_SHADER_STAGE_FRAGMENT_BIT, raw),
+      };
+      if (raw && render_readback(c, "primitive ID raw", raw_stages, 2, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, 0, 6,
+                                 &readback)) {
+         const unsigned y = TARGET_SIZE / 2;
+         report("primitive ID raw: left 0x%08x, right 0x%08x, top-left 0x%08x, bottom-right 0x%08x",
+                texels[y * TARGET_SIZE + TARGET_SIZE / 4], texels[y * TARGET_SIZE + 3 * TARGET_SIZE / 4],
+                texels[TARGET_SIZE / 8 * TARGET_SIZE + TARGET_SIZE / 8],
+                texels[(TARGET_SIZE - 1) * TARGET_SIZE + TARGET_SIZE - 1]);
+      }
+      vkDestroyShaderModule(c->device, raw, NULL);
+   }
+   const unsigned half = TARGET_SIZE * TARGET_SIZE / 2;
+   check(ok && left_red == half && right_green == half,
+         "primitive ID: the fragment shader reads each triangle's own ID without a stage writing it");
+   vkDestroyShaderModule(c->device, vert, NULL);
+   vkDestroyShaderModule(c->device, frag, NULL);
+   buffer_destroy(c, &readback);
+}
+
 static void *
 thread_mxcsr(void *out)
 {
@@ -1431,8 +1491,11 @@ main(void)
       test_compute(&c);
       test_triangle(&c);
       test_tessellation(&c);
-      test_geometry(&c);
+      /* Diagnostic runs without NGG, where a legacy GS hangs, skip the GS checks. */
+      if (!getenv("RADV_SMOKE_SKIP_GEOMETRY"))
+         test_geometry(&c);
       test_scratch(&c);
+      test_primitive_id(&c);
       if (c.barycentric) {
          test_barycentric(&c);
          test_barycentric_pair(&c);

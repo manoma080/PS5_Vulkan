@@ -3563,3 +3563,16 @@ reading the tessellator), and hung on the first draw with a legacy geometry
 shader (GPU_FAULT_SUSPENDPOINT_TIMEOUT_IN_RUN_ASYNC, the fence never
 signalled). The hang belongs to the legacy GS itself, whose GSVS ring size is
 one of the registers AGC owns.
+
+## 2026-09-27 — an NGG vertex shader's primitive ID as a per-primitive parameter reads 0 (RADV)
+
+Two triangles, a fragment shader reading gl_PrimitiveID and no stage writing
+it (the RADV smoke title's primitive ID check, after
+dEQP-VK.pipeline.*.misc.implicit_primitive_id): behind an NGG vertex shader
+both triangles read 0, with NGG culling on or off. RADV exports that ID as a
+per-primitive parameter on GFX10.3. The same draw through a legacy vertex
+shader (RADV_DEBUG=nongg), whose ID goes per vertex, read 0 and 1, and a
+geometry shader's gl_PrimitiveIDIn was right all along. Exported per vertex
+through LDS, as on GFX10.1, the NGG vertex shader's IDs read 0 and 1 too:
+the parameter cache, again, is GFX10.1's
+(ac_compiler_info.has_ngg_per_prim_params).

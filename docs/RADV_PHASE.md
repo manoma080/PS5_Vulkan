@@ -282,3 +282,19 @@ stub. Three fixes, each general:
   one-file platform change no longer rebuilds the whole CTS.
 
 All 42 dEQP-VK.pipeline.*.executable_properties cases pass (run execprops-3).
+
+## 2026-09-27 — link bindings, the implicit primitive ID
+
+- **Unbound platform functions.** libc++'s random_device called arc4random,
+  which no system module exports, through NULL
+  (pipeline.*.creation_cache_control crashed). The RADV link recipe now binds
+  every function of the platform's libc to its ps5_ version, local to the
+  title (a generated version script: the title converter refuses exports).
+  All 20 creation_cache_control cases pass.
+- **The implicit primitive ID** read 0 behind an NGG vertex shader
+  (HARDWARE_FINDINGS.md): it goes per vertex now where NGG has no
+  per-primitive parameters (Mesa fork 3057cb5). The smoke title checks it
+  (62 of 62 pass) and all 14 misc.implicit_primitive_id cases pass.
+- Open, from main-1's pipeline group: VK_EXT_sample_locations, whose
+  verify_location cases fail for custom and standard locations alike in every
+  construction type.
