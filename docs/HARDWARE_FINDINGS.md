@@ -3463,3 +3463,19 @@ provides) run: the smoke title's fragment shader with a private array of 256
 and 1024 floats, and the ten dEQP-VK.graphicsfuzz cases whose large private
 arrays faulted. The PS5 GPU description turns flat scratch off
 (ac_compiler_info.has_flat_scratch).
+
+## 2026-09-27 — per-vertex fragment inputs arrive rotated (RADV)
+
+A fragment shader reading its inputs per vertex (VK_KHR_fragment_shader_
+barycentric) got one triangle's vertices in order and the next one rotated:
+of two triangles filling the target (the right-hand corners at w = 16, as in
+dEQP-VK.fragment_shading_barycentric's triangle list), the second read
+(v5, v3, v4) where (v3, v4, v5) was drawn. Setting or clearing
+SPI_PS_INPUT_CNTL.ROTATE_PC_PTR, the GFX10.3 bit that rotates the parameter
+cache back to the primitive's vertex order, changed nothing; NGG culling and
+fast clears off changed nothing either. Like its surface swizzles, this GPU's
+parameter cache is GFX10.1's, which upstream RADV does not report the
+extension for; neither does this driver now (radeon_info.
+has_ps_strict_vertex_order). One triangle of either winding reads in order
+(the RADV smoke title's barycentric checks, which run where the extension is
+reported).

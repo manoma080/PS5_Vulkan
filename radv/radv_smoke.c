@@ -82,6 +82,7 @@ check(bool ok, const char *what)
    X(GetPhysicalDeviceQueueFamilyProperties)                                                       \
    X(GetPhysicalDeviceMemoryProperties)                                                            \
    X(CreateDevice)                                                                                 \
+   X(EnumerateDeviceExtensionProperties)                                                           \
    X(GetDeviceProcAddr)
 
 #define DEVICE_COMMANDS(X)                                                                         \
@@ -186,6 +187,8 @@ struct context {
    VkCommandPool pool;
    VkCommandBuffer cmd;
    VkFence fence;
+   /* VK_KHR_fragment_shader_barycentric is reported and enabled. */
+   bool barycentric;
 };
 
 static uint32_t
@@ -839,6 +842,106 @@ test_scratch(struct context *c)
    buffer_destroy(c, &readback);
 }
 
+/* test_triangle's triangle, whose vertices name themselves 1, 2 and 3; the
+ * fragment shader writes the three values it reads per vertex as its red,
+ * green and blue bytes. With the first vertex provoking, vertex_id[i] is
+ * vertex i's. */
+static void
+test_barycentric(struct context *c)
+{
+   struct buffer readback;
+   if (!buffer_create(c, TARGET_SIZE * TARGET_SIZE * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT, &readback)) {
+      check(false, "barycentric: readback buffer");
+      return;
+   }
+   VkShaderModule vert = shader(c, radv_smoke_bary_vert, sizeof(radv_smoke_bary_vert));
+   VkShaderModule frag = shader(c, radv_smoke_bary_frag, sizeof(radv_smoke_bary_frag));
+   for (uint32_t winding = 0; winding < 2; winding++) {
+   const VkBool32 other_winding = winding;
+   const VkSpecializationMapEntry entry = {.constantID = 0, .offset = 0, .size = sizeof(other_winding)};
+   const VkSpecializationInfo specialisation = {
+      .mapEntryCount = 1, .pMapEntries = &entry, .dataSize = sizeof(other_winding), .pData = &other_winding};
+   VkPipelineShaderStageCreateInfo stages[2] = {
+      stage_info(VK_SHADER_STAGE_VERTEX_BIT, vert),
+      stage_info(VK_SHADER_STAGE_FRAGMENT_BIT, frag),
+   };
+   stages[0].pSpecializationInfo = &specialisation;
+   const char *const what = winding ? "barycentric, other winding" : "barycentric";
+   bool ok = vert && frag &&
+             render_readback(c, what, stages, 2, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, 0, 3, &readback);
+   uint32_t wrong = 0;
+   const uint32_t expected_inside = 0xff030201u, blue = 0xffff0000u;
+   const uint32_t *const texels = readback.map;
+   for (uint32_t y = 0; ok && y < TARGET_SIZE; y++) {
+      for (uint32_t x = 0; x < TARGET_SIZE; x++) {
+         const double edge = (x + 0.5) / 128.0 + (y + 0.5) / 256.0;
+         if (edge > 0.995 && edge < 1.005)
+            continue;
+         const uint32_t expected = edge < 1.0 ? expected_inside : blue;
+         if (texels[y * TARGET_SIZE + x] != expected) {
+            if (wrong < 4)
+               report("%s: texel (%u, %u) reads 0x%08x, not 0x%08x", what, x, y, texels[y * TARGET_SIZE + x],
+                      expected);
+            wrong++;
+         }
+      }
+   }
+   if (wrong)
+      report("%s: %u texels wrong", what, wrong);
+   char description[128];
+   snprintf(description, sizeof(description), "%s: each vertex's value read per vertex, in the triangle's vertex order",
+            what);
+   check(ok && wrong == 0, description);
+   }
+   vkDestroyShaderModule(c->device, vert, NULL);
+   vkDestroyShaderModule(c->device, frag, NULL);
+   buffer_destroy(c, &readback);
+}
+
+/* dEQP-VK.fragment_shading_barycentric's triangle list: two triangles over
+ * the whole target, split along the diagonal, the right-hand corners at
+ * w = 16; vertex i names itself i + 1 and the fragment shader writes the
+ * three values it reads per vertex as its red, green and blue bytes. */
+static void
+test_barycentric_pair(struct context *c)
+{
+   struct buffer readback;
+   if (!buffer_create(c, TARGET_SIZE * TARGET_SIZE * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT, &readback)) {
+      check(false, "barycentric pair: readback buffer");
+      return;
+   }
+   VkShaderModule vert = shader(c, radv_smoke_bary6_vert, sizeof(radv_smoke_bary6_vert));
+   VkShaderModule frag = shader(c, radv_smoke_bary_frag, sizeof(radv_smoke_bary_frag));
+   const VkPipelineShaderStageCreateInfo stages[2] = {
+      stage_info(VK_SHADER_STAGE_VERTEX_BIT, vert),
+      stage_info(VK_SHADER_STAGE_FRAGMENT_BIT, frag),
+   };
+   bool ok = vert && frag &&
+             render_readback(c, "barycentric pair", stages, 2, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, 0, 6, &readback);
+   uint32_t wrong = 0;
+   const uint32_t *const texels = readback.map;
+   for (uint32_t y = 0; ok && y < TARGET_SIZE; y++) {
+      for (uint32_t x = 0; x < TARGET_SIZE; x++) {
+         if (x == y || x + 1 == y || y + 1 == x)
+            continue;
+         /* Below the diagonal: the first triangle (vertices 1, 2, 3). */
+         const uint32_t expected = x < y ? 0xff030201u : 0xff060504u;
+         if (texels[y * TARGET_SIZE + x] != expected) {
+            if (wrong < 4)
+               report("barycentric pair: texel (%u, %u) reads 0x%08x, not 0x%08x", x, y,
+                      texels[y * TARGET_SIZE + x], expected);
+            wrong++;
+         }
+      }
+   }
+   if (wrong)
+      report("barycentric pair: %u texels wrong", wrong);
+   check(ok && wrong == 0, "barycentric pair: each triangle's values read per vertex, in its vertex order");
+   vkDestroyShaderModule(c->device, vert, NULL);
+   vkDestroyShaderModule(c->device, frag, NULL);
+   buffer_destroy(c, &readback);
+}
+
 /* One quad patch over the whole target, its evaluation positions taken from
  * the tessellation coordinates alone or from the control points the control
  * shader wrote (which travel through the off-chip ring). */
@@ -1134,11 +1237,26 @@ context_create(struct context *c)
       .queueCount = 1,
       .pQueuePriorities = &priority,
    };
+   VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR barycentric = {
+      .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR,
+      .fragmentShaderBarycentric = VK_TRUE,
+   };
    VkPhysicalDeviceVulkan13Features features13 = {
       .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+      .pNext = &barycentric,
       .synchronization2 = VK_TRUE,
       .dynamicRendering = VK_TRUE,
    };
+   static const char *const device_extensions[] = {VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME};
+   VkExtensionProperties extensions[512];
+   uint32_t extension_count = sizeof(extensions) / sizeof(extensions[0]);
+   c->barycentric = false;
+   if (vkEnumerateDeviceExtensionProperties(c->physical, NULL, &extension_count, extensions) >= VK_SUCCESS) {
+      for (uint32_t i = 0; i < extension_count; i++)
+         c->barycentric |= strcmp(extensions[i].extensionName, VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME) == 0;
+   }
+   if (!c->barycentric)
+      features13.pNext = NULL;
    const VkPhysicalDeviceFeatures features = {
       .geometryShader = VK_TRUE,
       .tessellationShader = VK_TRUE,
@@ -1148,6 +1266,8 @@ context_create(struct context *c)
       .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
       .pNext = &features13,
       .pEnabledFeatures = &features,
+      .enabledExtensionCount = c->barycentric ? 1 : 0,
+      .ppEnabledExtensionNames = device_extensions,
       .queueCreateInfoCount = 1,
       .pQueueCreateInfos = &queue_info,
    };
@@ -1209,6 +1329,12 @@ main(void)
       test_tessellation(&c);
       test_geometry(&c);
       test_scratch(&c);
+      if (c.barycentric) {
+         test_barycentric(&c);
+         test_barycentric_pair(&c);
+      } else {
+         report("barycentric: VK_KHR_fragment_shader_barycentric is not reported; its checks are skipped");
+      }
    }
    if (c.device) {
       vkDeviceWaitIdle(c.device);
