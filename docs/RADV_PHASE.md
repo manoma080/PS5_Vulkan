@@ -412,3 +412,48 @@ conversions disagree the same way. Freedreno's `bvh/copy.comp` does not share
 the pattern (it stores and restores full 64-bit addresses and packs no node
 IDs), and no other Mesa driver has it. A patch with an upstream message is
 prepared for review before it is submitted.
+
+## 2026-09-27 — main-1 ends; conditional capture from a geometry shader
+
+main-1, every mustpass group but transform feedback, ended with 2,786,062
+cases: 1,098,388 pass, 43 quality warnings, 1,675,626 not supported, 11,909
+failures, 66 crashes, 26 lost devices and 4 resource errors. Of the 12,005
+that did not pass, 1,435 pass in later runs and 10,560 belong to features
+switched off while it ran; what is left, and every "not supported" the port
+caused, is in [CTS_GAPS.md](CTS_GAPS.md).
+
+1. **Seven failures had already been fixed.** The six
+   descriptor_indexing.*_minNonUniform cases and
+   rasterization.culling.primitive_id failed at 01:11 and 01:27, on builds
+   from before the fixes made during main-1, and pass on 3057cb5
+   (triage-untriaged-1). The minNonUniform shaders compile to the same
+   waterfall loop as upstream's for Navi21 (host builds of both, compared).
+2. **Conditional capture from a geometry shader.** The nine
+   conditional_rendering.transform_feedback cases on ps5-gs-compute captured
+   nothing on any stream. Forcing the compute passes to run unpredicated
+   (condxfb-nopred-2) captured nothing either, so conditional rendering was
+   not the cause; a one-shot capture of the draw parameters showed the passes
+   right. The capture happens in the rasterization copy of the geometry
+   shader, which is the vertex stage's shader, and the test's shader picks
+   its stream from a push constant pushed for the geometry stage alone:
+   RADV emitted it to no shader. Geometry-stage constants now also go to the
+   vertex stage while such a pipeline is bound (b26797e); the 9 pass and the
+   8,885 cases of gsc-regress-1 are unchanged (gsc-pc-gate-1).
+3. **Inherited conditional rendering is not the port's gap.** Its 482 cases
+   are not supported, and upstream RADV reports the feature false as well.
+4. **memfd_create.** The 8 placed-mapping cases that need two views of one
+   memory object were not supported because the console's libc has no
+   memfd_create. The platform layer now builds it as FreeBSD 13 does, on
+   libkernel's anonymous shared memory objects (SDK fork 71f2494, host tests
+   185 of 185); the console proof comes with ps5-gaps' placed mappings.
+5. **Asynchronous compute: what the public sources say.** Mesa keeps
+   GFX1013's compute queue off as broken. A public BC-250 project traces that
+   to asynchronous dispatches with partial threadgroups mis-executing (the fix
+   is RADV's has_async_compute_threadgroup_bug workaround, which Iceland and
+   Tonga already take) and to amdgpu's queue teardown, and reports the
+   synchronization2 group passing on the compute queue with both fixed. Its
+   mesh shader patch does not transfer: this GPU has no per-primitive
+   parameters, which RADV's mesh path needs. The AnyPS5 emulator, which boots
+   a PS5 game, models sceAgcDriverSubmitAcb as a queue number (0x20 to 0x57)
+   and the description sceAgcDriverSubmitDcb takes. None of this is console
+   evidence; a probe of that submission is designed and not run yet.

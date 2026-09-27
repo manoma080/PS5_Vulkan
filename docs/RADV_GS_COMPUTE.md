@@ -160,6 +160,24 @@ shader are unchanged (run gsc-regress-1: 8885 cases, 6870 pass, 2013 not
 supported, 2 quality warnings the pinned driver gives too, run
 qw-baseline-1).
 
+## Push constants in the rasterization copy (2026-09-27)
+
+The nine conditional_rendering.transform_feedback cases captured nothing on
+any stream. They were not about conditional rendering: with the passes forced
+to run unpredicated (a debug switch, run condxfb-nopred-2), the first draw
+captured nothing either. A one-shot capture of each draw's parameters
+(run on the console, then removed) showed the passes right: pre-GS sized
+stream 1 at 6 vertices and advanced its buffer by 24 bytes. The capture
+itself happens in the rasterization copy, which runs the geometry shader
+again for each output vertex, and that copy is the vertex stage's shader.
+The test's geometry shader picks its stream from a push constant pushed for
+the geometry stage alone, and RADV emits a stage's constants to that stage's
+shader: with no hardware geometry shader, they went nowhere, and the copy kept
+the values from when the pipeline was bound (stream 0). Geometry-stage
+constants now go to the vertex stage too while such a pipeline is bound
+(PS5_Mesa ps5-gs-compute b26797e). Run gsc-pc-gate-1: the 9 pass, and the
+8,885 cases of gsc-regress-1 are unchanged.
+
 ## Open
 
 - **Shader objects.** A geometry shader object with transform feedback
