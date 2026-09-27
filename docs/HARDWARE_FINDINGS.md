@@ -3479,3 +3479,26 @@ extension for; neither does this driver now (radeon_info.
 has_ps_strict_vertex_order). One triangle of either winding reads in order
 (the RADV smoke title's barycentric checks, which run where the extension is
 reported).
+
+## 2026-09-27 — the depth block lays out D16 mips like GFX1013 (RADV)
+
+A 256x256 D16 image with nine levels (swizzle 64KB_Z_X) was given three
+64 KiB blocks by addrlib with a Navi10 revision: level 0 in blocks 1 and 2,
+the 128x128 level and smaller ones in the mip tail in block 0. The depth block
+wrote past the image, at +0x31000 (a protection fault from the CB/DB client,
+dEQP-VK.glsl.texture_functions.texture.sampler2dshadow_* and the cube ones,
+with or without HTILE and fast clears). addrlib's dsMipmapHtileFix, on for
+every GFX10 chip but Navi10, keeps 8 and 16 bpp Z mips of that size out of
+the tail: the image takes four blocks and level 0 starts at 0x20000, where the
+depth block wrote. With GFX1013's revision (non-RB+ swizzles, the fix on) the
+cases pass, as do addrlib's host copy checks and dEQP-VK.image.
+host_image_copy; GFX1013 is also the chip whose missing dot products and
+HTILE clear bug this GPU shares.
+
+## 2026-09-27 — threads start with the IEEE floating-point state (platform)
+
+After the title's startup sets MXCSR 0x1f80 (the console starts it at
+0x9fe0, flush-to-zero and denormals-are-zero), both the main thread and a
+thread it creates read 0x1f80 (the RADV smoke title's check). With it the
+CTS's double-precision reference intervals keep denormals, and the 40
+dEQP-VK.glsl.builtin.precision_double cases that failed pass.

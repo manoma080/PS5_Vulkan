@@ -20,6 +20,7 @@
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -942,6 +943,31 @@ test_barycentric_pair(struct context *c)
    buffer_destroy(c, &readback);
 }
 
+static void *
+thread_mxcsr(void *out)
+{
+   unsigned mxcsr;
+   __asm__ volatile("stmxcsr %0" : "=m"(mxcsr));
+   *(unsigned *)out = mxcsr;
+   return NULL;
+}
+
+/* The title's startup sets the IEEE state (the console starts a title with
+ * flush-to-zero and denormals-are-zero), and a new thread starts with its
+ * creator's: exception flags aside, MXCSR reads 0x1f80 in both. */
+static void
+test_fp_state(void)
+{
+   unsigned mxcsr = 0, thread_value = 0;
+   __asm__ volatile("stmxcsr %0" : "=m"(mxcsr));
+   pthread_t thread;
+   const bool made = pthread_create(&thread, NULL, thread_mxcsr, &thread_value) == 0 &&
+                     pthread_join(thread, NULL) == 0;
+   report("fp state: main 0x%x, a new thread 0x%x", mxcsr, thread_value);
+   check((mxcsr & ~0x3fu) == 0x1f80 && made && (thread_value & ~0x3fu) == 0x1f80,
+         "fp state: main and a new thread run with IEEE denormals (MXCSR 0x1f80)");
+}
+
 /* One quad patch over the whole target, its evaluation positions taken from
  * the tessellation coordinates alone or from the control points the control
  * shader wrote (which travel through the off-chip ring). */
@@ -1320,6 +1346,7 @@ main(void)
     * capture works; the driver's own messages take the same way. */
    report("standard error to klog: %s", captured == 0 ? "captured" : "not captured");
    fprintf(stderr, "standard error reaches klog\n");
+  test_fp_state();
   struct context c = {0};
    if (context_create(&c)) {
       test_fill(&c);

@@ -3,8 +3,9 @@
  * Copyright (C) 2026 BlackBearReloaded
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Initializes the platform runtime, runs static constructors and main, and
- * hands normal process termination back to the platform runtime.
+ * Sets the IEEE floating-point state, initializes the platform runtime, runs
+ * static constructors and main, and hands normal process termination back to
+ * the platform runtime.
  */
 
 #include <cstddef>
@@ -16,6 +17,7 @@ using Initializer = void (*)();
 extern "C"
 {
     void _init_env(void *process_parameters);
+    void ps5_fp_ieee(void);
     int atexit(Destructor callback);
     [[noreturn]] void exit(int status);
     int application_main(int argc, char **argv, char **envp) __asm__("main");
@@ -70,6 +72,9 @@ _start(void *process_parameters, Destructor loader_teardown)
     auto *parameters = static_cast<std::uint8_t *>(process_parameters);
     auto **argv = reinterpret_cast<char **>(parameters + sizeof(std::uint64_t));
 
+    /* The console starts a title with flush-to-zero and denormals-are-zero
+     * on; the code linked here expects the IEEE state (PS5 platform, fp.h). */
+    ps5_fp_ieee();
     _init_env(process_parameters);
     if (loader_teardown != nullptr)
         (void)atexit(loader_teardown);
