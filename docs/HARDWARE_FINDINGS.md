@@ -3552,3 +3552,14 @@ GRBM_STATUS and a context register (VGT_GS_MODE) faulted the GPU
 (GPU_FAULT_BAD_COMMAND_ASYNC) and the system reset it. A title learns no
 register value this way, so the legacy GS rings stay unknown and legacy
 geometry shaders stay off.
+
+## 2026-09-27 — a legacy geometry shader still hangs; legacy VS and tessellation run (RADV)
+
+With every GFX10.1/GFX1013 trait found since 2026-09-26 in the GPU description
+(no dot products, GFX1013's addrlib, the ordered wave ID, buffer scratch), the
+RADV smoke title run with RADV_DEBUG=nongg passed its triangle (a legacy
+hardware VS) and all its tessellation checks (legacy LS/HS and a hardware VS
+reading the tessellator), and hung on the first draw with a legacy geometry
+shader (GPU_FAULT_SUSPENDPOINT_TIMEOUT_IN_RUN_ASYNC, the fence never
+signalled). The hang belongs to the legacy GS itself, whose GSVS ring size is
+one of the registers AGC owns.
