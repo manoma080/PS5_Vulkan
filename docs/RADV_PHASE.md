@@ -159,3 +159,19 @@ Open: the tessellated GS with more than 256 output vertices per input
 primitive (dEQP-VK.tessellation.geometry_interaction.limits.*): NGG needs
 per-instance multi-cycling there, which does not work with tessellation on
 GFX10-class hardware, and no legacy GS can run.
+
+Later the same day, three capabilities the console cannot serve stopped
+being reported (each group now reads not supported):
+
+- **Performance queries** (`radeon_info.has_perf_counters`): their
+  profiling lock needs a stable power state, which no exported function
+  sets.
+- **Ray tracing.** Ray tracing pipelines call their shaders with a stack in
+  scratch, addressed with flat scratch on GFX9+ (`radv_rt_pipelines_enabled`).
+  An ACO port of those calls to buffer scratch compiles pipelines on the host
+  (the Mesa fork's local branch `ps5-rt-buffer-scratch`, unverified), but
+  every acceleration structure build faulted the GPU first, a write far past
+  every buffer, even for an empty top level, so the GPU description turns
+  ray tracing off until the build runs.
+- A tessellation distribution mode does not rescue the GS amplification
+  limit: the limits cases lost the device in all four modes.
