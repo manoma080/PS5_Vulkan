@@ -1,7 +1,7 @@
 # Geometry shaders the hardware cannot run (RADV, route B)
 
-_Design, 2026-09-27. Build wiring done on the Mesa fork's branch
-ps5-gs-compute (16df662); slice 1 under way._
+_Design, 2026-09-27. Slice 1 done on the Mesa fork's branch ps5-gs-compute
+(ae740ef); slice 2 under way._
 
 ## Why
 
@@ -35,11 +35,11 @@ lowering in `src/poly` (also KosmicKrisp's):
   compute writing their outputs to memory (`poly_nir_lower_vs_before_gs`,
   `poly_nir_lower_tcs`/`tes`, poly's software tessellator);
 - a count pass when the GS's output count is not static, which keeps the
-  GS's memory side effects so that they happen once;
+  GS's memory side effects so that they happen once (with static counts the
+  GS proper keeps them instead);
 - a prefix sum over the counts, which gives each input primitive its place
   in the transform feedback buffers and the index buffer in API order;
-- the GS proper, side effects stripped, writing transform feedback and the
-  vertices to rasterize;
+- the GS proper, writing transform feedback and the vertices to rasterize;
 - an indexed indirect draw with a pass-through vertex shader reading them.
 
 Every other pipeline keeps the hardware path. Queries (primitives generated,
@@ -86,3 +86,23 @@ Built in vertical slices, each proved on the console before the next:
 3. Case 2 and case 1 behind tessellation, with poly's tessellator.
 4. Queries and pipeline statistics; the transform_feedback, geometry and
    tessellation groups whole on the console.
+
+## Slice 1 (2026-09-27)
+
+Done: VS and GS pipelines, vkCmdDraw and vkCmdDrawIndexed, behind
+`RADV_PS5_GS_COMPUTE=1`. Each draw dispatches the vertex shader, the count
+pass and the GS proper with the graphics descriptor sets, push constants and
+vertex buffers, then draws poly's output through the rasterization copy. The
+smoke title passes 61 of 61 on the console with every GS forced through this
+path: strips with a count chosen per primitive, early return, varyings,
+primitive IDs, and a GS recording its invocations in a storage buffer.
+
+Found on the way:
+
+- RADV's dynamic topology holds the hardware primitive type, not the Vulkan
+  enum; poly needs the latter.
+- Invocations past poly's grid fault the GPU: every pass but the pre-GS setup
+  checks its grid.
+- With static counts poly makes no count pass and stripped the GS's memory
+  writes from the GS proper, the only full run left. The fork's poly strips
+  them only when a count pass keeps them (fde2cc2).
