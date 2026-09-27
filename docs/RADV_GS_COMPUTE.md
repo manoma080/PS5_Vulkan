@@ -1,7 +1,8 @@
 # Geometry shaders the hardware cannot run (RADV, route B)
 
-_Design, 2026-09-27. Slices 1 to 3 done on the Mesa fork's branch
-ps5-gs-compute (88e5322); slice 4 (pipeline libraries, shader objects) next._
+_Design, 2026-09-27. Slices 1 to 3 and the pipeline library half of slice 4
+done on the Mesa fork's branch ps5-gs-compute (f300ac5); open items at the
+end._
 
 ## Why
 
@@ -145,4 +146,35 @@ On the console, the 6685-case transform_feedback sample of run xfb-1 goes
 from 1291 passing and 4529 failing to 5818 passing and 2 failing (run
 xfb-gsc-3; both failures use graphics pipeline libraries, which slice 4
 routes). Nothing that passed fails.
+
+## Slice 4, pipeline libraries (2026-09-27)
+
+A pre-rasterization library is compiled without the vertex input state, so
+its transform feedback geometry shader cannot run as compute there. Such a
+library keeps its shaders, and a pipeline fast-linked from it compiles its
+vertex and geometry shaders again with the whole state while importing the
+other libraries' binaries. Every sampled transform_feedback simple_fast_gpl
+and simple_optimized_gpl case now passes or is not supported, and the
+sampled pipeline_library and fast_linked_library cases with a geometry
+shader are unchanged (run gsc-regress-1: 8885 cases, 6870 pass, 2013 not
+supported, 2 quality warnings the pinned driver gives too, run
+qw-baseline-1).
+
+## Open
+
+- **Shader objects.** A geometry shader object with transform feedback
+  still takes the NGG path and captures nothing. No CTS case covers it (the
+  8 device-generated-commands cases that would are not supported), but the
+  capture must work: it needs the compute passes built when the draw binds
+  its vertex and geometry objects.
+- **Dynamic vertex input** (VK_EXT_vertex_input_dynamic_state) with such a
+  geometry shader: the vertex shader would need a prolog, which the compute
+  vertex pass has no equivalent of yet, so it also falls back to NGG.
+- **Pipeline statistics** during these draws: the compute passes count as
+  compute invocations, and the geometry shader's invocations and primitives
+  go to a sink.
+- **Slice 5**, tessellation with a geometry shader amplifying past one NGG
+  subgroup (tessellation.geometry_interaction.limits).
+- Merging the branch into ps5-port once main-1 is done, then rerunning the
+  groups it touches.
 
