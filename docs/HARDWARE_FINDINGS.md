@@ -3539,3 +3539,16 @@ an attachment combines to anything coarser failed. Like the parameter cache
 and TG_SIZE, this block is GFX10.1's, and GFX10.1 has no VRS. The PS5 GPU
 description clears `radeon_info.has_vrs`, so VK_KHR_fragment_shading_rate is
 not reported.
+
+## 2026-09-27 — command buffers cannot read GPU registers back (RADV)
+
+To learn the legacy GS ring size AGC programs (its tessellation rings, above,
+ignore RADV's writes), a local build of RADV added PM4 COPY_DATA reads of
+the VGT ring registers (VGT_ESGS_RING_SIZE, VGT_GSVS_RING_SIZE, the TF ring
+registers) to its queue preamble, before and after its own writes, into a
+CPU-visible buffer. Nothing arrived, not even an immediate value copied
+beside them the same way, and the smoke title still passed. Adding reads of
+GRBM_STATUS and a context register (VGT_GS_MODE) faulted the GPU
+(GPU_FAULT_BAD_COMMAND_ASYNC) and the system reset it. A title learns no
+register value this way, so the legacy GS rings stay unknown and legacy
+geometry shaders stay off.

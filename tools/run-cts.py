@@ -28,6 +28,10 @@ cts/build.txt always, other files when their size differs), so a run never
 uses an older title than the one built; a batched run notes the build it ran
 (cts/build.txt) in its batches.log. --no-deploy runs what the console has.
 
+A file named pause in a batched run's directory holds the run before its next
+launch, with the console idle, until the file is removed; the run then
+uploads the title again (it may have been rebuilt meanwhile) and goes on.
+
 Exit status: 0 when every case passed or is not supported, 1 when a case
 failed, 3 when a single run (--case) did not end on its own.
 """
@@ -221,6 +225,32 @@ def mustpass_cases(groups):
     return cases
 
 
+def deploy_title(args, batches=None):
+    """Upload the CTS title as last built, and note which build in batches."""
+    if args.no_deploy:
+        return
+    subprocess.run([sys.executable, str(ROOT / "tools" / "deploy-title-folder.py"), str(ROOT / "dist" / TITLE),
+                    "--always", "cts/build.txt"], check=True)
+    build = ROOT / "dist" / TITLE / "cts" / "build.txt"
+    if batches and build.exists():
+        batches.write(f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S} deployed {build.read_text().strip()}\n")
+        batches.flush()
+
+
+def wait_while_paused(args, run_dir, batches):
+    pause = run_dir / "pause"
+    if not pause.exists():
+        return
+    batches.write(f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S} paused\n")
+    batches.flush()
+    print(f"paused until {pause} is removed", flush=True)
+    while pause.exists():
+        time.sleep(1)
+    batches.write(f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S} resumed\n")
+    batches.flush()
+    deploy_title(args, batches)
+
+
 def batch_run(settings, args, cases):
     run_dir = ROOT / "build" / "cts-runs" / args.run
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -232,10 +262,8 @@ def batch_run(settings, args, cases):
             done[name] = status
     args.klog_dir = str(run_dir / "klog")
     Path(args.klog_dir).mkdir(exist_ok=True)
-    build = ROOT / "dist" / TITLE / "cts" / "build.txt"
-    if not args.no_deploy and build.exists():
-        with (run_dir / "batches.log").open("a") as batches:
-            batches.write(f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S} deployed {build.read_text().strip()}\n")
+    with (run_dir / "batches.log").open("a") as batches:
+        deploy_title(args, batches)
 
     wanted = set(cases)
     pending = [c for c in cases if c not in done]
@@ -251,6 +279,7 @@ def batch_run(settings, args, cases):
                 print(f"  {status:<14} {name}  {detail}", flush=True)
 
         while pending:
+            wait_while_paused(args, run_dir, batches)
             batch_number += 1
             batch = pending[:args.batch]
             started = time.monotonic()
@@ -339,10 +368,8 @@ def main():
     args.klog_dir = None
 
     settings = ps5_console.load_settings()
-    if not args.no_deploy:
-        subprocess.run([sys.executable, str(ROOT / "tools" / "deploy-title-folder.py"), str(ROOT / "dist" / TITLE),
-                        "--always", "cts/build.txt"], check=True)
     if args.case:
+        deploy_title(args)
         return single_run(settings, args)
     if args.mustpass:
         cases = mustpass_cases(args.mustpass)
