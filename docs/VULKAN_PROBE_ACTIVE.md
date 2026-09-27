@@ -23,8 +23,10 @@ ray cases, none fail). Merge order and gates are in RADV_PHASE.md
 description was audited against Mesa's GFX1013 (the BC-250): nine hand-set
 traits are that model, left unchanged until the merges. Open: a tessellated
 GS amplifying past 256 vertices, the legacy GS hang (its recorded cause was
-wrong), and a compute queue. ps5vk keeps shipping until RADV passes the
-same titles.
+wrong), and a compute queue. No full CTS rerun until every item in
+[CTS_GAPS.md](CTS_GAPS.md) (each failure, and each "not supported" the port
+caused) is closed by a targeted run. ps5vk keeps shipping until RADV passes
+the same titles.
 
 **Dolphin (Wind Waker) through ../PS5_RetroArch is the priority.** Every
 driver fault it shows is reduced to a runner probe, fixed as a general Vulkan
