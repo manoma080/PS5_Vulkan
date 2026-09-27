@@ -10,22 +10,20 @@ _Updated: 2026-09-27_
 **Vulkan 1.4 and the CTS: route B is under way** ([VULKAN_1_4_PLAN.md](VULKAN_1_4_PLAN.md)).
 RADV runs on the console with a PS5 winsys, and CTS 1.4.6.2 runs there as
 PPSA99015; findings and fixes are in [RADV_PHASE.md](RADV_PHASE.md). The first
-full pass (`main-1`, every mustpass group but transform feedback) is running
-in batches on the Mesa fork (39e0a54 now); each failure becomes a general
-driver or winsys change, then every non-pass case is rerun. Measured and no
-longer reported: fragment barycentrics, variable-rate shading,
-device-generated commands, performance queries. On unmerged fork branches:
-geometry shaders as compute (ps5-gs-compute: streamout from a GS works, the
-transform_feedback sample at 5818 pass, 2 fail) and ray queries (ps5-rt: the
-builds were right, RADV's traversal assumed Linux's address layout; 42,745
-ray cases, none fail). Merge order and gates are in RADV_PHASE.md
-(2026-09-27): after main-1, ps5-rt, then ps5-gs-compute. The chip
-description was audited against Mesa's GFX1013 (the BC-250): nine hand-set
-traits are that model, left unchanged until the merges. Open: a tessellated
-GS amplifying past 256 vertices, the legacy GS hang (its recorded cause was
-wrong), and a compute queue. No full CTS rerun until every item in
-[CTS_GAPS.md](CTS_GAPS.md) (each failure, and each "not supported" the port
-caused) is closed by a targeted run. ps5vk keeps shipping until RADV passes
+full pass (`main-1`, every mustpass group but transform feedback) ended on
+3057cb5: 1,098,388 pass, 1,675,626 not supported, 12,005 did not pass, of
+which 1,435 were fixed while it ran and 10,560 belong to features since
+switched off. Measured and no longer reported: fragment barycentrics,
+variable-rate shading, device-generated commands, performance queries. On
+unmerged fork branches: geometry shaders as compute (ps5-gs-compute, now with
+conditional capture), ray queries (ps5-rt), the GFX1013 traits in one place
+(ps5-gfx1013-traits, its large gate running) and placed maps with honest
+queue and conformance reports (ps5-gaps; the platform's memfd_create goes
+with it). Next: merge them, then one targeted rerun of every case main-1 did
+not pass. Ray tracing pipelines are on ps5-rt-pipelines. No full CTS rerun
+until every item in [CTS_GAPS.md](CTS_GAPS.md) (each failure, and each "not
+supported" the port caused) is closed by a targeted run; the largest is the
+compute queue, whose AGC submission probe is designed and not run yet. ps5vk keeps shipping until RADV passes
 the same titles.
 
 **Dolphin (Wind Waker) through ../PS5_RetroArch is the priority.** Every
