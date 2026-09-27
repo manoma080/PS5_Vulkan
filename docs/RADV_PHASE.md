@@ -194,3 +194,15 @@ the console first (HARDWARE_FINDINGS.md has the measurements):
   platform's `ps5_fp_ieee()` now runs first in every PS5_Vulkan title, and
   threads inherit their creator's MXCSR. RetroArch gets the same call when it
   moves to the platform helpers.
+
+**Subgroup IDs and ray tracing.** A compute wave's TG_SIZE carries no GFX10.3
+wave ID here (HARDWARE_FINDINGS.md); with the ordered wave ID the subgroup
+cases pass, and GPU acceleration structure builds no longer write past their
+buffers. Ray tracing is still off: with it on (and the buffer-scratch calls
+from `ps5-rt-buffer-scratch`), empty acceleration structures pass, but every
+ray query case with primitives faults in the test's own shader, a global
+load from an address the traversal read out of the acceleration structure:
+the build writes wrong contents once there are primitives
+(`RADV_EXPERIMENTAL=emulate_rt` faults the same way, so the intersection
+instruction is not the cause). Next there: dump a small build's nodes and
+compare them with what RADV's encoder should have written.
