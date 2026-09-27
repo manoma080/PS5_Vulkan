@@ -774,6 +774,71 @@ test_triangle(struct context *c)
    buffer_destroy(c, &readback);
 }
 
+/* The triangle of test_triangle, shaded by a fragment shader whose private
+ * array of n floats (a specialisation constant) is written and read at
+ * indices that depend on the texel: past a few dozen floats the compiler keeps
+ * it in scratch memory. Each texel's colour is the array's sum. */
+static void
+test_scratch(struct context *c)
+{
+   struct buffer readback;
+   if (!buffer_create(c, TARGET_SIZE * TARGET_SIZE * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT, &readback)) {
+      check(false, "scratch: readback buffer");
+      return;
+   }
+   VkShaderModule vert = shader(c, radv_smoke_vert, sizeof(radv_smoke_vert));
+   VkShaderModule frag = shader(c, radv_smoke_scratch_frag, sizeof(radv_smoke_scratch_frag));
+   static const int32_t sizes[] = {16, 64, 256, 1024};
+   for (unsigned v = 0; v < sizeof(sizes) / sizeof(sizes[0]); v++) {
+      const int32_t n = sizes[v];
+      const VkSpecializationMapEntry entry = {.constantID = 0, .offset = 0, .size = sizeof(n)};
+      const VkSpecializationInfo specialisation = {
+         .mapEntryCount = 1,
+         .pMapEntries = &entry,
+         .dataSize = sizeof(n),
+         .pData = &n,
+      };
+      VkPipelineShaderStageCreateInfo stages[2] = {
+         stage_info(VK_SHADER_STAGE_VERTEX_BIT, vert),
+         stage_info(VK_SHADER_STAGE_FRAGMENT_BIT, frag),
+      };
+      stages[1].pSpecializationInfo = &specialisation;
+      char what[64];
+      snprintf(what, sizeof(what), "scratch with %d floats", (int)n);
+      bool ok = vert && frag &&
+                render_readback(c, what, stages, 2, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, 0, 3, &readback);
+      uint32_t wrong = 0;
+      const uint32_t blue = 0xffff0000u;
+      const uint32_t *const texels = readback.map;
+      for (uint32_t y = 0; ok && y < TARGET_SIZE; y++) {
+         for (uint32_t x = 0; x < TARGET_SIZE; x++) {
+            const double edge = (x + 0.5) / 128.0 + (y + 0.5) / 256.0;
+            if (edge > 0.995 && edge < 1.005)
+               continue;
+            uint32_t sum = 0;
+            for (int32_t i = 0; i < n; i++)
+               sum += (uint32_t)((i * 7 + (int32_t)x) & 15);
+            const uint32_t expected =
+               edge < 1.0 ? (sum & 0xffu) | (((sum >> 8) & 0xffu) << 8) | 0xff000000u : blue;
+            if (texels[y * TARGET_SIZE + x] != expected) {
+               if (wrong < 4)
+                  report("%s: texel (%u, %u) reads 0x%08x, not 0x%08x", what, x, y, texels[y * TARGET_SIZE + x],
+                         expected);
+               wrong++;
+            }
+         }
+      }
+      if (wrong)
+         report("%s: %u texels wrong", what, wrong);
+      char description[96];
+      snprintf(description, sizeof(description), "%s: every texel has its array's sum", what);
+      check(ok && wrong == 0, description);
+   }
+   vkDestroyShaderModule(c->device, vert, NULL);
+   vkDestroyShaderModule(c->device, frag, NULL);
+   buffer_destroy(c, &readback);
+}
+
 /* One quad patch over the whole target, its evaluation positions taken from
  * the tessellation coordinates alone or from the control points the control
  * shader wrote (which travel through the off-chip ring). */
@@ -1143,6 +1208,7 @@ main(void)
       test_triangle(&c);
       test_tessellation(&c);
       test_geometry(&c);
+      test_scratch(&c);
    }
    if (c.device) {
       vkDeviceWaitIdle(c.device);

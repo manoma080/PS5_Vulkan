@@ -84,6 +84,34 @@ def parse_qpa(text):
     return cases
 
 
+KLOG_RESULT = re.compile(r"\[cts\]   (\w+) \((.*)\)$")
+ASYNC_GPU_FAULT = re.compile(r"GPU_FAULT_\w*ASYNC")
+
+
+def parse_klog(path):
+    """The results klog printed, in order: (name, status, detail). A killed
+    title loses what it had not flushed of its QPA log, but klog kept each
+    result line as the case ended (it can drop lines under load)."""
+    cases = []
+    current = None
+    try:
+        lines = Path(path).read_text(errors="replace").splitlines()
+    except OSError:
+        return cases, False
+    async_fault = False
+    for line in lines:
+        async_fault |= bool(ASYNC_GPU_FAULT.search(line))
+        match = CASE_LINE.search(line)
+        if match:
+            current = match.group(1)
+            continue
+        match = KLOG_RESULT.match(line)
+        if match and current:
+            cases.append((current, match.group(1), match.group(2).strip()))
+            current = None
+    return cases, async_fault
+
+
 def run_once(settings, args, selection, caselist=None):
     """One launch of the title. Returns how the run ended, its cases from the
     QPA log, the last case klog saw start, and the klog file."""
@@ -107,6 +135,8 @@ def run_once(settings, args, selection, caselist=None):
         flags.append(f"--deqp-case={selection}")
     flags += args.extra
     flags += [f"env {setting}" for setting in args.env]
+    if args.stderr_file:
+        flags.append("env CTS_STDERR_FILE=/app0/cts/stderr.txt")
     files["args.txt"] = "\n".join(flags) + "\n"
     upload(settings, files)
 
@@ -137,10 +167,13 @@ def run_once(settings, args, selection, caselist=None):
     output = None
     if args.klog_dir:
         output = str(Path(args.klog_dir) / f"{TITLE}-{datetime.datetime.now():%Y%m%d-%H%M%S}.log")
+    fetch = ["cts/TestResults.qpa"] + (["cts/stderr.txt"] if args.stderr_file else [])
     ended, klog, fetched = run_title_module.run_title(
-        TITLE, r"\[cts\] run ends", args.timeout, output=output, fetch=["cts/TestResults.qpa"],
+        TITLE, r"\[cts\] run ends", args.timeout, output=output, fetch=fetch,
         elf=args.elf, on_line=on_line, stall=args.stall, progressing=progressing, activity=r"\[cts")
     qpa = fetched[0] if fetched else None
+    if args.stderr_file and len(fetched) > 1:
+        print(f"stderr: {fetched[1]}", flush=True)
     text = qpa.read_text(errors="replace") if qpa and qpa.exists() else ""
     # The title's own crash line names the case; klog's last case line is the
     # fallback (it can drop lines under load).
@@ -223,6 +256,12 @@ def batch_run(settings, args, cases):
                 else:
                     record(name, status, detail)
                     terminated |= detail == "terminated"
+            # What the QPA log lost when the title was killed, klog kept.
+            klog_cases, async_fault = parse_klog(klog) if klog else ([], False)
+            if ended != "finished":
+                for name, status, detail in klog_cases:
+                    if name in in_batch and name not in done:
+                        record(name, status, detail)
             # A case the title logged as Crash or Timeout is what ended the run.
             if ended != "finished" and not terminated:
                 # The case that ended the run: the one the title's crash line or
@@ -235,7 +274,10 @@ def batch_run(settings, args, cases):
                     culprit = next((c for c in batch if c not in done), None)
                 if culprit is not None:
                     status = "Timeout" if ended in ("stalled", "timed out") else "Crash"
-                    record(culprit, status, f"the run {ended} (runner)")
+                    # An asynchronous GPU fault reaches the title after the draw
+                    # that caused it: an earlier case may be the one to blame.
+                    note = "; asynchronous GPU fault" if async_fault else ""
+                    record(culprit, status, f"the run {ended} (runner{note})")
             elif not any(c in done for c in batch):
                 # A finished run that settled nothing would repeat forever.
                 record(batch[0], "Missing", "not in the log of a finished run (runner)")
@@ -277,6 +319,9 @@ def main():
     parser.add_argument("--extra", action="append", default=[], help="another deqp argument")
     parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
                         help="an environment variable for the driver (RADV_DEBUG=...)")
+    parser.add_argument("--stderr-file", action="store_true",
+                        help="send the driver's stderr and stdout to a file on the console and fetch it (klog drops "
+                             "lines under large dumps such as RADV_DEBUG=shaders)")
     parser.add_argument("--verbose", action="store_true", help="print every case")
     args = parser.parse_args()
     args.klog_dir = None

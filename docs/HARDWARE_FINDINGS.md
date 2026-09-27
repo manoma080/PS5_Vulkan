@@ -3450,3 +3450,16 @@ GFX1013 (`has_htile_tc_z_clear_bug_*`); with its workaround on
 (ZRANGE_PRECISION 0 after a clear to 0), every dynamic_state discard case and
 the depth and fragment_operations groups pass. The missing integer dot
 products (above) are also GFX1013's.
+
+## 2026-09-27 — a shader cannot set its own flat scratch base (RADV)
+
+Every wave of a shader addressing scratch with scratch_* instructions faulted
+(MEMVIOL, all 271 waves of the RADV smoke title's draw, a few instructions into
+the shader): on GFX10 the shader first sets FLAT_SCRATCH_LO/HI itself with
+s_setreg, and those accesses go astray. The same shaders addressing scratch
+with buffer instructions through the scratch resource (ACO's GFX8 path, with
+the scratch ring descriptor and the wave's scratch offset RADV already
+provides) run: the smoke title's fragment shader with a private array of 256
+and 1024 floats, and the ten dEQP-VK.graphicsfuzz cases whose large private
+arrays faulted. The PS5 GPU description turns flat scratch off
+(ac_compiler_info.has_flat_scratch).

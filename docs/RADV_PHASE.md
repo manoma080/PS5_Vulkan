@@ -124,3 +124,38 @@ supported.
 
 Next: the rest of main-1 on this build, with the shader-object group back
 in; transform feedback stays out until a GS can stream out.
+
+## 2026-09-27 — graphicsfuzz, device-generated commands, scratch
+
+main-1's next groups turned up three problems, and the runner a fourth.
+
+1. **Floats parsed as integers.** Graphicsfuzz shaders whose colour is decided
+   by constants took their else branch: the CTS assembles SPIR-V text with
+   SPIRV-Tools, whose `istream >> float` read 0.100000001 as 100000001. The
+   console's `localeconv()` reports an empty decimal point while its `strtod`
+   reads '.', and the platform's C-locale `strtof_l` spliced the empty point
+   in place of '.'. Fixed in the shared platform layer (PS5_PayloadSDK
+   9cf8084, its PROBE.md records the measurement). Found by comparing
+   `NIR_DEBUG=print_fs` on the host and on the console pass by pass: the
+   first difference was the SPIR-V constants.
+2. **No device-generated commands.** The console cannot run a command buffer
+   the GPU wrote (INDIRECT_BUFFER, B8), so VK_EXT_device_generated_commands
+   is no longer reported (`radeon_info.has_gpu_written_ibs`).
+3. **Buffer scratch** (HARDWARE_FINDINGS.md): ACO addresses scratch through
+   buffer instructions on this GPU; the smoke title gained scratch checks
+   (58 of 58 pass) and graphicsfuzz passes whole (757 cases).
+4. **Tooling.** An asynchronous GPU fault kills the CTS title after the draw
+   that caused it, and the unflushed QPA log with it: the runner blamed one
+   innocent case per launch and lost the rest. It now takes the results klog
+   printed for what the log lost, and notes when a fault was asynchronous.
+   `run-cts.py --stderr-file` sends the driver's stderr and stdout to a file
+   on the console and fetches it (klog drops lines of a large dump).
+
+Checked and ruled out on the way: the console's libm results, its half-float
+conversions (F16C and software) and its MXCSR (flush-to-zero and
+denormals-are-zero are on, but clearing them changed nothing).
+
+Open: the tessellated GS with more than 256 output vertices per input
+primitive (dEQP-VK.tessellation.geometry_interaction.limits.*): NGG needs
+per-instance multi-cycling there, which does not work with tessellation on
+GFX10-class hardware, and no legacy GS can run.
