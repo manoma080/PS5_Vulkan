@@ -480,3 +480,52 @@ next CTS title is this tip.
 
 tools/build-radv.sh builds mesa_clc and vtn_bindgen2 from the pinned
 revision, since poly's kernels need them.
+
+## 2026-09-27 — ray tracing pipelines, capture and replay, sparse, calibrated timestamps
+
+Four gaps in [CTS_GAPS.md](CTS_GAPS.md), each built on its own branch and
+measured by a targeted run, then brought into ps5-port (7848a74):
+
+1. **Ray tracing pipelines.** ACO's calls through the scratch buffer (as on
+   GFX6-8) where a shader cannot set FLAT_SCRATCH, on top of the traversal
+   fix. A sample of every 20th case of dEQP-VK.ray_tracing_pipeline
+   (rtp-sample-1, 935): 302 pass, the rest not supported for features
+   upstream RADV does not offer on GFX10.3 or the port did not yet (sparse,
+   capture and replay).
+2. **Capture and replay addresses.** A captured buffer outside the shaders'
+   window takes the top of the device-memory region and a replay takes its
+   exact address or fails. replay-2 (1,787 cases, every capture and replay
+   case main-1 ran): 1,287 pass, 500 not supported, none fail. Shader group
+   handle replay, which needs whole shader arenas replayed into the window,
+   is still not reported. (replay-1 resumed an earlier run of that name, so
+   358 of its results were from a morning build; it is not evidence.)
+3. **Sparse resources.** The winsys maps a buffer's direct memory into a
+   reserved range to bind and a shared zero block to unbind; a submission
+   with binds waits for its waits on the CPU first. No exported function sets
+   PRT bits, so shaderResourceResidency and residencyNonResidentStrict are
+   not reported. The first sample (sparse-sample-1) lost the device on every
+   image whose surface needs less than 16 KiB: RADV aligned sparse images to
+   amdgpu's 4 KiB page, and the console maps 16 KiB at a time. Aligned to the
+   GPU page (gart_page_size), the sample passes or is not supported
+   throughout (sparse-sample-2: 176 pass), and with 3D residency on, a 3D and
+   cube sample passes 298 of 394, the rest needing a device group
+   (sparse-3d-1).
+4. **Calibrated timestamps.** The winsys reads the GPU clock with a
+   RELEASE_MEM of its timestamp, submitted alone. dev_domain_test and
+   calibration_test passed at once; host_domain_test failed because Mesa's
+   runtime reads FreeBSD's CLOCK_MONOTONIC_FAST for the raw monotonic
+   domain, which lags a precise reading. Without CLOCK_MONOTONIC_RAW the
+   domain is no longer offered, and all three pass (ts-2).
+
+The placed-mapping cases that need two views of one memory object pass with
+the platform's memfd_create (ts-mp-1: 5 pass, the 8 others quality warnings
+only because /proc/self/maps does not exist to cross-check).
+
+The CTS's own PS5 platform reported no window system of any kind, so the
+about 4,200 headless WSI cases were not supported before the driver was
+asked. It now offers headless displays (CTS fork 971a27e).
+
+merged-1 reruns 311,927 cases on the merged driver: every case main-1 did
+not pass, transform feedback, ray queries and pipelines, everything main-1
+skipped for acceleration structures, ray tracing or sparse, capture and
+replay, the headless WSI cases and device info.
