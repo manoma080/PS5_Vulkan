@@ -59,6 +59,35 @@ radv_link_recipe() {
             __cxa_thread_atexit_impl; do
         radv_link_flags+=("--defsym=$name=ps5_$name")
     done
+    # The rest of the platform's libc (ps5platform/libc.h): functions no system
+    # module exports, which a title's import leaves pointing at nothing (libc++'s
+    # random_device called arc4random through NULL:
+    # dEQP-VK.pipeline.*.creation_cache_control), and those exported but
+    # refused to a title or faulting in it. The directory functions go
+    # together: a DIR from ps5_opendir is the platform's own.
+    for name in arc4random arc4random_buf arc4random_uniform gmtime_r statvfs fstatvfs \
+            futimens clock_nanosleep getaddrinfo freeaddrinfo if_nameindex if_freenameindex \
+            opendir fdopendir readdir rewinddir dirfd closedir \
+            openat unlinkat fchmodat fstatat mkdirat renameat; do
+        radv_link_flags+=("--defsym=$name=ps5_$name")
+    done
+    # A bound name the SDK's stub libraries also define would be exported from
+    # the title to override theirs, and the title converter refuses exports:
+    # every bound name stays local.
+    local map="$root/build/radv-platform-local.map"
+    mkdir -p "$root/build"
+    {
+        printf '{\n    local:\n'
+        local flag
+        for flag in "${radv_link_flags[@]}"; do
+            [[ $flag == --defsym=* ]] || continue
+            flag=${flag#--defsym=}
+            printf '        %s;\n' "${flag%%=*}"
+        done
+        printf '};\n'
+    } > "$map.tmp"
+    mv "$map.tmp" "$map"
+    radv_link_flags+=(--version-script "$map")
 
     local file
     for file in "$archive" "$platform" "$sdk_root/target/lib/libc++.a" \
