@@ -529,3 +529,35 @@ merged-1 reruns 311,927 cases on the merged driver: every case main-1 did
 not pass, transform feedback, ray queries and pipelines, everything main-1
 skipped for acceleration structures, ray tracing or sparse, capture and
 replay, the headless WSI cases and device info.
+
+## 2026-09-27 — merged-1 triage: sparse descriptor buffers, the sparse queue, a CTS test bug
+
+merged-1 stopped at 144,298 cases with 58 crashes, all
+dEQP-VK.binding_model.descriptor_buffer.sparse_*.*acceleration_structure*:
+cases main-1 never ran, since neither sparse nor acceleration structures
+were reported then. The GPU faulted reading at low addresses (0xc0012000 and
+the like). Shaders reach a descriptor buffer through a 32-bit pointer with
+the window's high word, so RADV creates one with RADEON_FLAG_32BIT, and the
+winsys ignored the flag for a sparse range, which sat in the device-memory
+region: the shaders read their descriptors from the window at the same low
+bits, and the acceleration structure pointers read there faulted. A sparse
+range with that flag is now a reservation in the window, where the kernel
+places one given no address (PS5_Mesa 400560e).
+
+The 22 compute cases left crashed in Mesa's runtime: the dedicated sparse
+queue family enables a submit thread, which the runtime has only with native
+timelines, and the winsys builds timeline semaphores over its binary sync
+type. RADV now offers that family only when the winsys's own sync type is the
+timeline; sparse binding stays on the one graphics family (a6bdf1a).
+sparse-db-1 and sparse-db-2 (the 427 cases of the sparse descriptor buffer
+groups sampled): all pass or are not supported.
+
+dEQP-VK.binding_model.descriptor_heap.basic.fragment.input_attachment failed
+in main-1 and merged-1 alike, whatever the driver's compression. The test's
+subpass dependency made nothing written in the first subpass visible to the
+second's input attachment reads (from TOP_OF_PIPE, with MEMORY_WRITE), and
+upstream fixed the test after 1.4.6.2 (VK-GL-CTS c8ff9475c5, issue 6446; not
+on the 1.4.6 release branch). The CTS fork carries the fix (4615d988e2) and
+the case passes (sparse-db-1).
+
+merged-1 resumed on a6bdf1a and CTS 4615d988e2 from case 144,298.
