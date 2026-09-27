@@ -20,6 +20,8 @@ if [ -z "$compiler" ]; then
     exit 2
 fi
 
+# IEEE denormals, as the payload SDK's wrappers: the PS5 target's default,
+# preserve-sign, assumes the flush-to-zero MXCSR a title here no longer has.
 exec "$compiler" \
     -target x86_64-sie-ps5 \
     -fvisibility-nodllstorageclass=default \
@@ -27,4 +29,5 @@ exec "$compiler" \
     -isystem "$sdk_root/target/include/c++/v1" \
     -isystem "$sdk_root/target/include" \
     -fno-stack-protector -fno-plt -femulated-tls \
+    -fdenormal-fp-math=ieee \
     "$@"

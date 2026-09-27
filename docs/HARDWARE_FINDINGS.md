@@ -3512,3 +3512,17 @@ counted where two ran; subgroup ballot in compute failed too). The ordered
 wave ID in bits 6-11, which GFX6-10 use, is right: with it those cases pass,
 and so do the GPU acceleration structure builds that had written far past
 their buffers, whose radix sort indexes shared memory by subgroup ID.
+
+## 2026-09-27 — the PS5 compiler target assumes flushed denormals (toolchain)
+
+With the IEEE state set, the CTS title classified the float denormal
+0x1.fffffcp-127 as normal: `fpclassify`, `std::fpclassify` and
+`__builtin_fpclassify` alike. The PS5 target's compiler default is
+`-fdenormal-fp-math=preserve-sign`, the model of a title that keeps the
+console's flush-to-zero MXCSR. The CTS's OpFma checks classify their inputs
+that way and so never allowed a flushed denormal input, rejecting the GPU's
+valid results wherever a shader flushes denormals (72 cases, fp32 in the flush
+and default modes, fp64 in flush). Built with `-fdenormal-fp-math=ieee` (the
+payload SDK's compiler wrappers and tooling/prospero-clang18 pass it now),
+every dEQP-VK.spirv_assembly.instruction.compute.opfma case passes, and
+`fesetround` and `fma` were right all along.
