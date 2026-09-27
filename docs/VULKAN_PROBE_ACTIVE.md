@@ -14,11 +14,17 @@ full pass (`main-1`, every mustpass group but transform feedback) is running
 in batches on the Mesa fork (39e0a54 now); each failure becomes a general
 driver or winsys change, then every non-pass case is rerun. Measured and no
 longer reported: fragment barycentrics, variable-rate shading,
-device-generated commands, performance queries. Open: streamout from a
-GS, a tessellated GS amplifying past 256 vertices, acceleration structure
-builds (ray tracing is off until they run), and a compute queue (AGC's
-asynchronous compute, a probe still to write). ps5vk keeps shipping until
-RADV passes the same titles.
+device-generated commands, performance queries. On unmerged fork branches:
+geometry shaders as compute (ps5-gs-compute: streamout from a GS works, the
+transform_feedback sample at 5818 pass, 2 fail) and ray queries (ps5-rt: the
+builds were right, RADV's traversal assumed Linux's address layout; 42,745
+ray cases, none fail). Merge order and gates are in RADV_PHASE.md
+(2026-09-27): after main-1, ps5-rt, then ps5-gs-compute. The chip
+description was audited against Mesa's GFX1013 (the BC-250): nine hand-set
+traits are that model, left unchanged until the merges. Open: a tessellated
+GS amplifying past 256 vertices, the legacy GS hang (its recorded cause was
+wrong), and a compute queue. ps5vk keeps shipping until RADV passes the
+same titles.
 
 **Dolphin (Wind Waker) through ../PS5_RetroArch is the priority.** Every
 driver fault it shows is reduced to a runner probe, fixed as a general Vulkan

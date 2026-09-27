@@ -3596,3 +3596,94 @@ So the legacy GS rings stay out of reach, and the geometry shaders NGG cannot
 run go the compute route (RADV_GS_COMPUTE.md). Separately, every run of the
 smoke title ends with a SIGSYS in libkernel during exit(), with or without
 this probe.
+
+## 2026-09-27 — acceleration structures build right; RADV's traversal assumed top-half addresses (RADV)
+
+Ray tracing was turned off (Mesa fork b07af11) because every acceleration
+structure build faulted, and later because every ray query against a
+structure with primitives faulted in the test's shader, which was read as
+the build writing wrong contents. Neither was the console.
+
+- The writes far past every buffer were the compute wave ID (TG_SIZE, above):
+  the builds' radix sort indexes shared memory by subgroup ID.
+- The builds are right. The RADV smoke title built bottom levels of one and
+  two triangles on the GPU into host-visible memory (the RADV_PS5_RAY_TRACING=1
+  probe switch, Mesa fork ps5-rt), and their words, decoded against RADV's own
+  structures on the host, are what the encoder writes: header, root box, child
+  bounds and both triangles' vertices.
+- RADV turns a BVH node back into an address two ways. The builders'
+  `node_to_addr` sign-extends bit 47. Ray traversal's `build_node_to_addr` set
+  bits 48-63 on GFX9+, assuming every buffer is in the top half of the address
+  space, as amdgpu places them. The PS5 winsys uses each buffer's CPU address,
+  in the bottom half, so the first node load of every traversal went to a
+  non-canonical address. Empty structures passed because no node is loaded,
+  and the software intersection (`RADV_EXPERIMENTAL=emulate_rt`) faulted the
+  same way because it reconstructs addresses the same way.
+- With traversal sign-extending too (ps5-rt d55c9c0), every ray-related case
+  of the mustpass (all of ray_query and the ray cases of api, binding_model,
+  dynamic_state and subgroups, 42,745) passes or is not supported: 9,348 pass,
+  none fail (run rq-full-1). The not-supported reasons are ray tracing
+  pipelines, host acceleration structure commands, sparse binding and opacity
+  micromaps, none of which is reported. Upstream Mesa has the same two
+  conversions (`src/amd/vulkan/nir/radv_nir_rt_common.c`, `bvh/bvh_helpers.h`).
+
+## 2026-09-27 — the GPU's fixed-function blocks are GC 10.1.3's (BC-250)
+
+The BC-250 is the same silicon family ("Cyan Skillfish"). Upstream Linux
+programs it as GC IP 10.1.3/10.1.4 and gives it a fixed GB_ADDR_CONFIG,
+`CYAN_SKILLFISH_GB_ADDR_CONFIG_GOLDEN` = 0x00100044
+(`drivers/gpu/drm/amd/amdgpu/gfx_v10_0.c`), the value the PS5 winsys has used
+since the start (taken then from Mesa's recorded Navi10) and which every tile
+map measured here agrees with. Its CU counts are not fixed: the kernel reads
+each board's harvest registers, and the BC-250 runs 24 CUs, so the PS5's 36
+stay the public figure.
+
+Mesa models the same chip as CHIP_GFX1013, "GFX10 plus ray tracing
+instructions". Derived on the host from the PS5 winsys's own inputs, that
+model differs from the Navi21 identity the port uses in exactly the traits
+found here one at a time since 2026-09-26: no accelerated dot products, no
+GFX10.3 wave ID in TG_SIZE, no per-primitive NGG parameters, no strict vertex
+order, no VRS, no RGB9E5 colour target, the TC-compatible HTILE clear bug,
+GFX1013's addrlib revision, and no RB+. It also has the BVH instruction, as
+this GPU does. The audit is in RADV_PHASE.md.
+
+What does not follow GC 10.1.3: the shaders ACO compiles for GFX10.3 run
+(measured: the CTS as a whole), and flat scratch faults for a platform reason
+(above), not a chip one. Inferred, not measured: the shader core allocates
+VGPRs by GFX10.3's granule (8 a block in wave64), since with GFX10.1's (4)
+every shader ACO encodes for GFX10.3 that uses more than half its registers
+would get too few.
+
+## 2026-09-27 — two recorded limitations had the wrong reason
+
+Twice a console limitation went into this file with a cause that was not
+measured, and both causes were wrong:
+
+- `has_legacy_gs` (2026-09-26): "neither AGC library exports anything for
+  the legacy geometry shader's rings". RADV does not need an export: it
+  allocates the rings as ordinary winsys buffers and sets their sizes with a
+  UCONFIG register write, VGT_ESGS_RING_SIZE and VGT_GSVS_RING_SIZE, and AGC
+  also exports `sceAgcDcbSetUcRegistersIndirect` for that register range. What
+  was measured stands: a legacy geometry shader hangs the GPU (31 of 33
+  dEQP-VK.geometry cases, and the smoke title under RADV_DEBUG=nongg). Why it
+  hangs is not established; the tessellation rings are AGC's (measured), and
+  whether the GS ring sizes are is unmeasured.
+- Ray tracing (2026-09-27, the entry before last): "every acceleration
+  structure build faulted the GPU", then "the build writes wrong contents".
+  The build was never wrong; RADV's traversal assumed Linux's address layout.
+
+Both read as facts about the console and would have cost the next reader the
+same investigation. From here, an entry separates what was measured (the
+symptom, with its run) from what is inferred (the cause), and before a cause is
+recorded as the console's: (1) the driver's own path is checked for a
+platform assumption, above all one amdgpu makes for it (address layout, a
+kernel interface, a firmware feature), and (2) Mesa's GFX1013 model is checked
+for the trait.
+
+`has_gpu_written_ibs`, carried over from ps5vk's B8, was audited the same way
+and holds: B8's fault names the command processor's fetch (client CPG) in the
+system context, where title memory is not mapped, and RADV's winsys buffers
+are the same title memory. The one variant not measured is an
+INDIRECT_BUFFER into the submitted range itself (VULKAN_1_4_PLAN.md S5), which
+device-generated commands could not use directly anyway, and B8 froze the
+console, so it stays unrun without a reason to need it.

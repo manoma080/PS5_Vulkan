@@ -197,6 +197,9 @@ struct context {
    bool barycentric;
    /* VK_KHR_fragment_shading_rate is reported, and its pipeline rate enabled. */
    bool shading_rate;
+   /* VK_KHR_acceleration_structure is reported and enabled, with buffer
+    * device addresses. */
+   bool acceleration_structure;
    /* How render_readback_with records its draw (test_geometry's draw checks):
     * directly by default. Indices are 16-bit. */
    struct {
@@ -1478,6 +1481,177 @@ test_geometry(struct context *c)
    buffer_destroy(c, &readback);
 }
 
+/* ------------------------------------------------- acceleration structures */
+
+static PFN_vkCreateAccelerationStructureKHR vkCreateAccelerationStructureKHR;
+static PFN_vkDestroyAccelerationStructureKHR vkDestroyAccelerationStructureKHR;
+static PFN_vkGetAccelerationStructureBuildSizesKHR vkGetAccelerationStructureBuildSizesKHR;
+static PFN_vkCmdBuildAccelerationStructuresKHR vkCmdBuildAccelerationStructuresKHR;
+static PFN_vkGetBufferDeviceAddress vkGetBufferDeviceAddress;
+
+/* A host-visible buffer with a device address. */
+static bool
+address_buffer_create(struct context *c, VkDeviceSize size, VkBufferUsageFlags usage, struct buffer *out,
+                      VkDeviceAddress *address)
+{
+   *out = (struct buffer){.size = size};
+   const VkBufferCreateInfo info = {
+      .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+      .size = size,
+      .usage = usage | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+      .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+   };
+   if (vkCreateBuffer(c->device, &info, NULL, &out->buffer) != VK_SUCCESS)
+      return false;
+   VkMemoryRequirements req;
+   vkGetBufferMemoryRequirements(c->device, out->buffer, &req);
+   const VkMemoryAllocateFlagsInfo flags = {
+      .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
+      .flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT,
+   };
+   const uint32_t type = memory_type(c, req.memoryTypeBits,
+                                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+   const VkMemoryAllocateInfo alloc = {
+      .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+      .pNext = &flags,
+      .allocationSize = req.size,
+      .memoryTypeIndex = type,
+   };
+   if (type == UINT32_MAX || vkAllocateMemory(c->device, &alloc, NULL, &out->memory) != VK_SUCCESS ||
+       vkBindBufferMemory(c->device, out->buffer, out->memory, 0) != VK_SUCCESS ||
+       vkMapMemory(c->device, out->memory, 0, VK_WHOLE_SIZE, 0, &out->map) != VK_SUCCESS)
+      return false;
+   const VkBufferDeviceAddressInfo address_info = {
+      .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+      .buffer = out->buffer,
+   };
+   *address = vkGetBufferDeviceAddress(c->device, &address_info);
+   return true;
+}
+
+/* Builds a bottom level of `count` triangles on the GPU into host-visible
+ * memory. Returns whether each triangle's first vertex is in the structure. */
+static bool
+build_bottom_level(struct context *c, const float (*vertices)[3], uint32_t count)
+{
+   struct buffer vertex_buffer, structure_buffer, scratch_buffer;
+   VkDeviceAddress vertex_address, structure_address, scratch_address;
+   if (!address_buffer_create(c, sizeof(float) * 9 * count,
+                              VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR, &vertex_buffer,
+                              &vertex_address)) {
+      report("acceleration structure: vertex buffer");
+      return false;
+   }
+   memcpy(vertex_buffer.map, vertices, sizeof(float) * 9 * count);
+
+   VkAccelerationStructureGeometryKHR geometry = {
+      .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
+      .geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR,
+      .geometry.triangles =
+         {
+            .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR,
+            .vertexFormat = VK_FORMAT_R32G32B32_SFLOAT,
+            .vertexData.deviceAddress = vertex_address,
+            .vertexStride = sizeof(float) * 3,
+            .maxVertex = 3 * count - 1,
+            .indexType = VK_INDEX_TYPE_NONE_KHR,
+         },
+      .flags = VK_GEOMETRY_OPAQUE_BIT_KHR,
+   };
+   VkAccelerationStructureBuildGeometryInfoKHR build = {
+      .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
+      .type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
+      .mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR,
+      .geometryCount = 1,
+      .pGeometries = &geometry,
+   };
+   VkAccelerationStructureBuildSizesInfoKHR sizes = {
+      .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR,
+   };
+   vkGetAccelerationStructureBuildSizesKHR(c->device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &build,
+                                           &count, &sizes);
+   report("acceleration structure: %u triangles take %llu bytes, %llu of scratch", count,
+          (unsigned long long)sizes.accelerationStructureSize, (unsigned long long)sizes.buildScratchSize);
+
+   bool ok = address_buffer_create(c, sizes.accelerationStructureSize,
+                                   VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR, &structure_buffer,
+                                   &structure_address) &&
+             address_buffer_create(c, sizes.buildScratchSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, &scratch_buffer,
+                                   &scratch_address);
+   VkAccelerationStructureKHR structure = VK_NULL_HANDLE;
+   if (ok) {
+      memset(structure_buffer.map, 0xcd, sizes.accelerationStructureSize);
+      const VkAccelerationStructureCreateInfoKHR create = {
+         .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR,
+         .buffer = structure_buffer.buffer,
+         .size = sizes.accelerationStructureSize,
+         .type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
+      };
+      ok = vkCreateAccelerationStructureKHR(c->device, &create, NULL, &structure) == VK_SUCCESS;
+   }
+   if (ok) {
+      build.dstAccelerationStructure = structure;
+      build.scratchData.deviceAddress = scratch_address;
+      const VkAccelerationStructureBuildRangeInfoKHR range = {.primitiveCount = count};
+      const VkAccelerationStructureBuildRangeInfoKHR *ranges = &range;
+      ok = begin(c);
+      vkCmdBuildAccelerationStructuresKHR(c->cmd, 1, &build, &ranges);
+      ok = ok && submit_and_wait(c, "acceleration structure");
+   }
+
+   bool found = false;
+   if (ok) {
+      const uint32_t *const words = structure_buffer.map;
+      const uint32_t total = (uint32_t)(sizes.accelerationStructureSize / 4);
+      found = true;
+      for (uint32_t t = 0; t < count; t++) {
+         bool here = false;
+         for (uint32_t i = 0; i + 3 <= total && !here; i++)
+            here = memcmp(words + i, vertices[3 * t], sizeof(float) * 3) == 0;
+         found = found && here;
+      }
+   } else {
+      report("acceleration structure: the build of %u triangles did not complete", count);
+   }
+   if (structure)
+      vkDestroyAccelerationStructureKHR(c->device, structure, NULL);
+   buffer_destroy(c, &structure_buffer);
+   buffer_destroy(c, &scratch_buffer);
+   buffer_destroy(c, &vertex_buffer);
+   return found;
+}
+
+/* GPU builds of bottom levels of one and two triangles: the structure holds
+ * each triangle's vertices. Runs where acceleration structures are reported
+ * (RADV_PS5_RAY_TRACING=1 until ray tracing is on). */
+static void
+test_acceleration_structure(struct context *c)
+{
+   vkCreateAccelerationStructureKHR =
+      (PFN_vkCreateAccelerationStructureKHR)vkGetDeviceProcAddr(c->device, "vkCreateAccelerationStructureKHR");
+   vkDestroyAccelerationStructureKHR =
+      (PFN_vkDestroyAccelerationStructureKHR)vkGetDeviceProcAddr(c->device, "vkDestroyAccelerationStructureKHR");
+   vkGetAccelerationStructureBuildSizesKHR = (PFN_vkGetAccelerationStructureBuildSizesKHR)vkGetDeviceProcAddr(
+      c->device, "vkGetAccelerationStructureBuildSizesKHR");
+   vkCmdBuildAccelerationStructuresKHR = (PFN_vkCmdBuildAccelerationStructuresKHR)vkGetDeviceProcAddr(
+      c->device, "vkCmdBuildAccelerationStructuresKHR");
+   vkGetBufferDeviceAddress = (PFN_vkGetBufferDeviceAddress)vkGetDeviceProcAddr(c->device, "vkGetBufferDeviceAddress");
+   if (!vkCreateAccelerationStructureKHR || !vkDestroyAccelerationStructureKHR ||
+       !vkGetAccelerationStructureBuildSizesKHR || !vkCmdBuildAccelerationStructuresKHR || !vkGetBufferDeviceAddress) {
+      check(false, "acceleration structure: the extension's commands load");
+      return;
+   }
+
+   static const float one[3][3] = {{0.0f, 0.0f, 1.0f}, {1.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 1.0f}};
+   check(build_bottom_level(c, one, 1), "acceleration structure: a GPU-built bottom level holds its one triangle");
+
+   static const float two[6][3] = {
+      {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 1.0f},
+      {2.0f, 2.0f, 3.0f}, {3.0f, 2.0f, 3.0f}, {2.0f, 3.0f, 3.0f},
+   };
+   check(build_bottom_level(c, two, 2), "acceleration structure: a GPU-built bottom level holds its two triangles");
+}
+
 /* -------------------------------------------------------------------- main */
 
 static bool
@@ -1556,17 +1730,31 @@ context_create(struct context *c)
       .synchronization2 = VK_TRUE,
       .dynamicRendering = VK_TRUE,
    };
-   const char *device_extensions[2];
+   const char *device_extensions[4];
    uint32_t enabled_extensions = 0;
    VkExtensionProperties extensions[512];
    uint32_t extension_count = sizeof(extensions) / sizeof(extensions[0]);
    c->barycentric = false;
    c->shading_rate = false;
+   c->acceleration_structure = false;
    if (vkEnumerateDeviceExtensionProperties(c->physical, NULL, &extension_count, extensions) >= VK_SUCCESS) {
       for (uint32_t i = 0; i < extension_count; i++) {
          c->barycentric |= strcmp(extensions[i].extensionName, VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME) == 0;
          c->shading_rate |= strcmp(extensions[i].extensionName, VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME) == 0;
+         c->acceleration_structure |=
+            strcmp(extensions[i].extensionName, VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) == 0;
       }
+   }
+   VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure = {
+      .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
+      .accelerationStructure = VK_TRUE,
+   };
+   if (c->acceleration_structure) {
+      device_extensions[enabled_extensions++] = VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME;
+      device_extensions[enabled_extensions++] = VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME;
+      features12.bufferDeviceAddress = VK_TRUE;
+      acceleration_structure.pNext = features13.pNext;
+      features13.pNext = &acceleration_structure;
    }
    if (c->barycentric) {
       device_extensions[enabled_extensions++] = VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME;
@@ -1665,6 +1853,8 @@ main(void)
          test_shading_rate(&c);
       else
          report("shading rate: VK_KHR_fragment_shading_rate is not reported; its checks are skipped");
+      if (c.acceleration_structure)
+         test_acceleration_structure(&c);
    }
    if (c.device) {
       vkDeviceWaitIdle(c.device);

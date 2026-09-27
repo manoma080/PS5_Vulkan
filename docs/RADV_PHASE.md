@@ -318,3 +318,97 @@ from 1291 passing and 4529 failing to 5818 passing and 2 failing (run
 xfb-gsc-3), and the 2 left use graphics pipeline libraries, which are not
 routed yet. The smoke title passes 73 of 73 with every geometry shader
 forced through compute.
+
+## 2026-09-27 — ray queries work; the chip description audited against GFX1013
+
+**Ray tracing was a driver bug.** RADV's traversal rebuilt node addresses
+assuming Linux's top-half address layout; the acceleration structure builds
+were right all along (HARDWARE_FINDINGS.md). Fixed on the Mesa fork's branch
+ps5-rt (d55c9c0), which also adds the probe-only switch RADV_PS5_RAY_TRACING=1.
+With it, every ray-related mustpass case (42,745) passes or is not supported:
+9,348 pass, none fail (run rq-full-1). The smoke title checks that GPU-built
+bottom levels of one and two triangles hold their vertices.
+
+**Two limitations on record had wrong causes** (legacy GS rings, ray
+tracing); HARDWARE_FINDINGS.md has both and the rule that follows.
+
+**The chip description.** The winsys describes the GPU as Navi21 (GFX10.3)
+and sets deviations by hand as they are found. Mesa's CHIP_GFX1013 (the
+BC-250's chip, GC 10.1.3 upstream) was derived on the host from the same
+winsys inputs and compared field by field (every scalar of radeon_info and
+ac_compiler_info):
+
+| Subsystem | Set by hand in the winsys | GFX1013 gives | Verdict | Evidence |
+| --- | --- | --- | --- | --- |
+| Shader ALU | `has_accelerated_dot_product` false | false | redundant | NGG repack drew nothing (2026-09-26) |
+| Compute dispatch | `has_cs_wave_id` false | false | redundant | subgroup ID read 0 (2026-09-27) |
+| Parameter cache | `has_ngg_per_prim_params` false | false | redundant | implicit primitive ID read 0 (2026-09-27) |
+| Parameter cache | `has_ps_strict_vertex_order` false | false | redundant | second triangle's inputs rotated (2026-09-27) |
+| Rasterizer | `has_vrs` false | false | redundant | shading-rate check (2026-09-27) |
+| Colour block | `has_rgb9e5_color_target` false | false | redundant | 500 blit cases (2026-09-26) |
+| Colour block | `rbplus_allowed` false | false | redundant | set with the description, no run of its own |
+| Depth block | both HTILE TC Z clear bugs true | true | redundant | discard.depth (2026-09-27) |
+| Depth block | addrlib revision 0x82 | 0x82 | redundant | D16 mip layout (2026-09-27) |
+| Shader memory | `has_flat_scratch` false | true | platform, stays | s_setreg of FLAT_SCRATCH faults (2026-09-27) |
+| Geometry | `has_legacy_gs` false | true | stays, cause open | legacy GS hangs; the recorded reason was wrong |
+| Command processor | `has_gpu_written_ibs` false | true | platform, stays | B8: command fetch in the system context |
+| Profiling | `has_perf_counters` false | true | platform, stays | no exported stable power state |
+| Ray tracing | BVH instruction off | on | driver bug, gate lifts | rq-full-1 |
+| Memory and sync | replay VA, sparse, userptr, VRAM, 32-bit window, timelines | kernel inputs | platform | the winsys |
+
+Nine of the fourteen chip overrides are exactly Mesa's GFX1013 model. The
+other five are platform restrictions, a hang whose cause is open and the ray
+tracing bug; none is a chip trait the model gets wrong. GFX1013 also differs in fields the port has not set, each a
+prediction with no console evidence yet: `has_htile_stencil_mipmap_bug`,
+`has_zero_index_buffer_bug`, `has_two_planes_iterate256_bug`,
+`has_ngg_fully_culled_bug`, `has_mad32`, the shader core's limits (20 waves a
+SIMD, 2,160 SGPRs, a VGPR granule of 4 in wave64), `l3_cache_size_mb` 0 (Navi21's
+128 MB Infinity Cache, which the PS5 lacks; on GFX10.3 it is only printed and
+put in RGP captures), and amdgpu leaving GFX1013's compute rings off as
+broken, which bears on the open compute queue probe. main-1's failures so far
+match none of them.
+
+What it implies: the GPU is a hybrid, and neither identity describes it.
+Register programming and the shader core behave as GFX10.3 (RADV's GFX10.3
+programming passes the CTS; the VGPR granule is inferred), while the
+fixed-function blocks are GC 10.1.3's. The deviations were being found one
+symptom at a time where Mesa already models them. Once main-1 and the merges
+below are done, the description should state that: keep GFX10.3 as the
+identity and take the fixed-function traits from Mesa's GFX1013 model in one
+place instead of nine lines, and test each open prediction before adopting
+it, the stencil mipmap and zero index buffer bugs first (both have a RADV
+workaround ready). Until then the description is unchanged.
+
+ACO targeting gfx1013 is a separate decision. The compiler's gfx_level
+decides the instruction set (GFX10.3 drops v_mad_f32 and v_mac_f32, which
+`has_mad32` names, and adds the dot products that do not compute here), the
+VGPR granule and wave limits, and GFX10.1's hazard workarounds. Measured:
+GFX10.3 code runs the CTS, and the dot products do not compute. Not measured:
+whether v_mad_f32 exists, and whether GFX10.1's hazards (the ones ACO works
+around for gfx1010-gfx1013) exist on this shader core. The second matters most,
+because a missing workaround corrupts rarely and depending on data. ACO stays
+on gfx1030 without dot products until two shader probes answer those.
+
+**Merge order.** main-1 measures the pinned revision (3057cb5), which both
+branches are compared against, so neither merges before it ends. The branches
+touch no common file.
+
+1. ps5-rt first. Its gate is done: rq-full-1 and the smoke title's
+   acceleration structure check. Turning the BVH instruction on by default
+   (reporting acceleration structures and ray queries) is its own commit, with
+   the same gate rerun on the merged pin. Ray tracing pipelines stay off until
+   the buffer-scratch branch passes dEQP-VK.ray_tracing_pipeline.
+2. ps5-gs-compute second. Measured so far: the transform_feedback sample
+   (xfb-gsc-3), the pipeline library sample (gsc-regress-1) and the smoke
+   title (73 of 73, both GS paths). Still to run before it merges: the whole
+   transform_feedback, geometry, pipeline, query_pool and conditional_rendering
+   groups against main-1, where conditional_rendering.transform_feedback's 9
+   known failures (four-stream capture under conditional rendering) are still
+   open.
+3. Then every main-1 case that did not pass, rerun on the merged pin.
+
+**Upstream.** The traversal fix is upstream-correct: upstream Mesa's two
+conversions disagree the same way. Freedreno's `bvh/copy.comp` does not share
+the pattern (it stores and restores full 64-bit addresses and packs no node
+IDs), and no other Mesa driver has it. A patch with an upstream message is
+prepared for review before it is submitted.
