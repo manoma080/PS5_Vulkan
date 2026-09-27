@@ -47,7 +47,7 @@ done
 for shader in tess.vert tess.tesc tess_coord.tese tess_patch.tese tess_varying.vert tess_varying.tesc \
         tess_varying.tese colour.frag tess_level.tesc gs_points.vert gs_16.geom gs_32.geom gs_64.geom \
         gs_100.geom gs_128.geom gs_primid.geom gs_colour.vert gs_colour.geom gs_primid_fixed.geom gs_record.geom \
-        scratch.frag bary.vert bary.frag bary6.vert; do
+        scratch.frag bary.vert bary.frag bary6.vert full.vert rate.frag; do
     name=${shader//./_}
     glslangValidator -V --target-env vulkan1.0 --vn "radv_smoke_$name" \
         "$root/radv/shaders/$shader" -o "$work/gen/smoke_$name.h" > /dev/null
@@ -101,4 +101,4 @@ cp "$root/runtime/libc.prx" "$app/sce_module/libc.prx"
 "$tool" self --inspect --file "$app/sce_module/libc.prx" > /dev/null
 "$tool" self --inspect --file "$app/eboot.bin" > /dev/null
 printf 'RADV title: %s (%s bytes; archive %s)\n' "$app" "$(stat -c %s "$app/eboot.bin")" \
-    "$(git -C "$mesa" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    "$(git -C "$mesa" describe --always --dirty --abbrev=11 --exclude='*' 2>/dev/null || echo unknown)"

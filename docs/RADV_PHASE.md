@@ -206,3 +206,30 @@ the build writes wrong contents once there are primitives
 (`RADV_EXPERIMENTAL=emulate_rt` faults the same way, so the intersection
 instruction is not the cause). Next there: dump a small build's nodes and
 compare them with what RADV's encoder should have written.
+
+## 2026-09-27 — no variable-rate shading
+
+main-1's fragment_shading_rate group failed 1803 of the 5653 cases it ran:
+every case whose combined rate is 1x1 passed, every coarser one failed,
+including a bare pipeline rate with no attachment and no per-primitive rate.
+The smoke title gained a shading-rate check (a triangle over the target at a
+2x2 and a 1x1 pipeline rate, counting fragment invocations and the rates they
+read), run while the driver still reported the extension: at 2x2 the fragment
+shader ran once a texel and read 1x1 (HARDWARE_FINDINGS.md).
+`radeon_info.has_vrs` now gates VK_KHR_fragment_shading_rate, its features,
+the mesh shader's primitive rate and RADV_FORCE_VRS; the PS5 GPU description
+clears it (Mesa fork 39e0a54). The smoke title skips the check when the
+extension is not reported (59 of 59 pass).
+
+Tooling: `tools/build-radv.sh` moves to a new pinned revision by content, so
+only what the revision touched is rebuilt (62 s, not a full Mesa build), and
+the title scripts label their build with the fork's revision marked -dirty
+when its tree has changes the revision does not hold. The titles link the
+fork's own build-ps5 tree; build-radv.sh builds the pinned dependency record.
+`tools/run-cts.py` now uploads the CTS title as last built before it runs
+(a first verification run had used the title already on the console, built
+before the change) and notes the build, from the title's cts/build.txt, in the
+run's batches.log. On the gated driver the fragment_shading_rate cases (every
+50th of the group) report the extension unsupported, and dEQP-VK.info plus
+api.info, api.device_init and api.feature_info pass or are not supported
+(run vrs-2, 10640 cases).

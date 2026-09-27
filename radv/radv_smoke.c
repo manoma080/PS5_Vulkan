@@ -190,6 +190,8 @@ struct context {
    VkFence fence;
    /* VK_KHR_fragment_shader_barycentric is reported and enabled. */
    bool barycentric;
+   /* VK_KHR_fragment_shading_rate is reported, and its pipeline rate enabled. */
+   bool shading_rate;
 };
 
 static uint32_t
@@ -477,7 +479,7 @@ enum { TARGET_SIZE = 256 };
 static bool
 render_readback_with(struct context *c, const char *what, const VkPipelineShaderStageCreateInfo *stages,
                      uint32_t stage_count, VkPrimitiveTopology topology, uint32_t patch_points,
-                     uint32_t vertex_count, struct buffer *readback, VkBuffer storage)
+                     uint32_t vertex_count, struct buffer *readback, VkBuffer storage, const void *pipeline_next)
 {
    const VkFormat format = VK_FORMAT_R8G8B8A8_UNORM;
    VkImage image = VK_NULL_HANDLE;
@@ -610,6 +612,7 @@ render_readback_with(struct context *c, const char *what, const VkPipelineShader
    };
    const VkPipelineRenderingCreateInfo rendering_info = {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+      .pNext = pipeline_next,
       .colorAttachmentCount = 1,
       .pColorAttachmentFormats = &format,
    };
@@ -717,7 +720,7 @@ render_readback(struct context *c, const char *what, const VkPipelineShaderStage
                 struct buffer *readback)
 {
    return render_readback_with(c, what, stages, stage_count, topology, patch_points, vertex_count, readback,
-                               VK_NULL_HANDLE);
+                               VK_NULL_HANDLE, NULL);
 }
 
 static VkPipelineShaderStageCreateInfo
@@ -940,6 +943,64 @@ test_barycentric_pair(struct context *c)
    check(ok && wrong == 0, "barycentric pair: each triangle's values read per vertex, in its vertex order");
    vkDestroyShaderModule(c->device, vert, NULL);
    vkDestroyShaderModule(c->device, frag, NULL);
+   buffer_destroy(c, &readback);
+}
+
+/* A pipeline fragment shading rate over a triangle covering the target: at
+ * 2x2 the fragment shader runs once for each 2x2 block of texels and reports
+ * the rate (gl_ShadingRateEXT 5, 2 pixels each way), at 1x1 once for each
+ * texel. Every texel is written either way. */
+static void
+test_shading_rate(struct context *c)
+{
+   struct buffer readback, counts;
+   if (!buffer_create(c, TARGET_SIZE * TARGET_SIZE * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT, &readback)) {
+      check(false, "shading rate: readback buffer");
+      return;
+   }
+   if (!buffer_create(c, 4096, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, &counts)) {
+      check(false, "shading rate: count buffer");
+      buffer_destroy(c, &readback);
+      return;
+   }
+   VkShaderModule vert = shader(c, radv_smoke_full_vert, sizeof(radv_smoke_full_vert));
+   VkShaderModule frag = shader(c, radv_smoke_rate_frag, sizeof(radv_smoke_rate_frag));
+   const VkPipelineShaderStageCreateInfo stages[2] = {
+      stage_info(VK_SHADER_STAGE_VERTEX_BIT, vert),
+      stage_info(VK_SHADER_STAGE_FRAGMENT_BIT, frag),
+   };
+   static const struct {
+      uint32_t size, rate;
+   } rates[2] = {{2, 5}, {1, 0}};
+   for (unsigned r = 0; r < 2; r++) {
+      const uint32_t size = rates[r].size;
+      const VkPipelineFragmentShadingRateStateCreateInfoKHR rate_state = {
+         .sType = VK_STRUCTURE_TYPE_PIPELINE_FRAGMENT_SHADING_RATE_STATE_CREATE_INFO_KHR,
+         .fragmentSize = {size, size},
+         .combinerOps = {VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR, VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR},
+      };
+      char what[64];
+      snprintf(what, sizeof(what), "shading rate %ux%u", size, size);
+      memset(counts.map, 0, 4096);
+      const bool ok = vert && frag &&
+                      render_readback_with(c, what, stages, 2, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, 0, 3, &readback,
+                                           counts.buffer, &rate_state);
+      const uint32_t *const texels = readback.map;
+      const uint32_t *const words = counts.map;
+      unsigned wrong = 0;
+      for (unsigned i = 0; ok && i < TARGET_SIZE * TARGET_SIZE; i++)
+         wrong += texels[i] != 0xff0000ffu;
+      const uint32_t expected = TARGET_SIZE * TARGET_SIZE / (size * size);
+      report("%s: %u invocations (%u expected), rates seen 0x%x (0x%x expected), %u texels wrong", what,
+             ok ? words[0] : 0, expected, ok ? words[1] : 0, 1u << rates[r].rate, wrong);
+      char description[128];
+      snprintf(description, sizeof(description),
+               "%s: the fragment shader runs once for each %ux%u block and reports the rate", what, size, size);
+      check(ok && wrong == 0 && words[0] == expected && words[1] == 1u << rates[r].rate, description);
+   }
+   vkDestroyShaderModule(c->device, vert, NULL);
+   vkDestroyShaderModule(c->device, frag, NULL);
+   buffer_destroy(c, &counts);
    buffer_destroy(c, &readback);
 }
 
@@ -1183,7 +1244,7 @@ test_geometry(struct context *c)
          stage_info(VK_SHADER_STAGE_FRAGMENT_BIT, frag),
       };
       const bool ok = render_readback_with(c, "geometry record", stages, 3, VK_PRIMITIVE_TOPOLOGY_POINT_LIST, 0, 4,
-                                           &readback, record.buffer);
+                                           &readback, record.buffer, NULL);
       const uint32_t *const words = record.map;
       unsigned seen = 0;
       for (unsigned i = 0; ok && words[0] == 4 && i < 4; i++) {
@@ -1267,32 +1328,48 @@ context_create(struct context *c)
       .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR,
       .fragmentShaderBarycentric = VK_TRUE,
    };
+   VkPhysicalDeviceFragmentShadingRateFeaturesKHR shading_rate = {
+      .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR,
+      .pipelineFragmentShadingRate = VK_TRUE,
+   };
    VkPhysicalDeviceVulkan13Features features13 = {
       .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
-      .pNext = &barycentric,
       .synchronization2 = VK_TRUE,
       .dynamicRendering = VK_TRUE,
    };
-   static const char *const device_extensions[] = {VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME};
+   const char *device_extensions[2];
+   uint32_t enabled_extensions = 0;
    VkExtensionProperties extensions[512];
    uint32_t extension_count = sizeof(extensions) / sizeof(extensions[0]);
    c->barycentric = false;
+   c->shading_rate = false;
    if (vkEnumerateDeviceExtensionProperties(c->physical, NULL, &extension_count, extensions) >= VK_SUCCESS) {
-      for (uint32_t i = 0; i < extension_count; i++)
+      for (uint32_t i = 0; i < extension_count; i++) {
          c->barycentric |= strcmp(extensions[i].extensionName, VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME) == 0;
+         c->shading_rate |= strcmp(extensions[i].extensionName, VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME) == 0;
+      }
    }
-   if (!c->barycentric)
-      features13.pNext = NULL;
+   if (c->barycentric) {
+      device_extensions[enabled_extensions++] = VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME;
+      barycentric.pNext = features13.pNext;
+      features13.pNext = &barycentric;
+   }
+   if (c->shading_rate) {
+      device_extensions[enabled_extensions++] = VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME;
+      shading_rate.pNext = features13.pNext;
+      features13.pNext = &shading_rate;
+   }
    const VkPhysicalDeviceFeatures features = {
       .geometryShader = VK_TRUE,
       .tessellationShader = VK_TRUE,
       .vertexPipelineStoresAndAtomics = VK_TRUE,
+      .fragmentStoresAndAtomics = VK_TRUE,
    };
    const VkDeviceCreateInfo device_info = {
       .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
       .pNext = &features13,
       .pEnabledFeatures = &features,
-      .enabledExtensionCount = c->barycentric ? 1 : 0,
+      .enabledExtensionCount = enabled_extensions,
       .ppEnabledExtensionNames = device_extensions,
       .queueCreateInfoCount = 1,
       .pQueueCreateInfos = &queue_info,
@@ -1362,6 +1439,10 @@ main(void)
       } else {
          report("barycentric: VK_KHR_fragment_shader_barycentric is not reported; its checks are skipped");
       }
+      if (c.shading_rate)
+         test_shading_rate(&c);
+      else
+         report("shading rate: VK_KHR_fragment_shading_rate is not reported; its checks are skipped");
    }
    if (c.device) {
       vkDeviceWaitIdle(c.device);

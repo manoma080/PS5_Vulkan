@@ -11,8 +11,10 @@ _Updated: 2026-09-27_
 RADV runs on the console with a PS5 winsys, and CTS 1.4.6.2 runs there as
 PPSA99015; findings and fixes are in [RADV_PHASE.md](RADV_PHASE.md). The first
 full pass (`main-1`, every mustpass group but transform feedback) is running
-in batches on the Mesa fork at b07af11; each failure becomes a general driver
-or winsys change, then every non-pass case is rerun. Open: streamout from a
+in batches on the Mesa fork (39e0a54 now); each failure becomes a general
+driver or winsys change, then every non-pass case is rerun. Measured and no
+longer reported: fragment barycentrics, variable-rate shading,
+device-generated commands, performance queries. Open: streamout from a
 GS, a tessellated GS amplifying past 256 vertices, acceleration structure
 builds (ray tracing is off until they run), and a compute queue (AGC's
 asynchronous compute, a probe still to write). ps5vk keeps shipping until

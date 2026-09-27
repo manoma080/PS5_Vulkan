@@ -21,7 +21,7 @@ set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 mesa_fork="${PS5_MESA_FORK:-$root/../PS5_Mesa}"
-mesa_revision=58be0082f7d29063f3dd8420f5c2ffd2f726e0f9
+mesa_revision=39e0a54a7d197f3990cd1884547686cea3974122
 sdk="$root/.deps/native/ps5-payload-sdk"
 source_tree="$root/.deps/work/radv-src"
 build="$root/.deps/work/radv-build-ps5"
@@ -30,6 +30,7 @@ meson=${MESON:-$(command -v meson || echo "$HOME/.local/bin/meson")}
 ninja=${NINJA:-$(command -v ninja || echo "$HOME/.local/bin/ninja")}
 
 [[ -x $meson && -x $ninja ]] || { echo "meson and ninja are needed (uv tool install meson ninja)" >&2; exit 2; }
+command -v rsync > /dev/null || { echo "rsync is needed" >&2; exit 2; }
 [[ -f $sdk/.ps5-sdk-revision ]] || { echo "run tools/setup-native-dependencies.sh first" >&2; exit 2; }
 if [[ -f $install/PROVENANCE.txt ]] && grep -q "^revision: $mesa_revision$" "$install/PROVENANCE.txt" &&
     grep -q "^sdk: $(cat "$sdk/.ps5-sdk-revision")$" "$install/PROVENANCE.txt"; then
@@ -40,9 +41,15 @@ git -C "$mesa_fork" cat-file -e "$mesa_revision^{commit}" 2>/dev/null ||
     { echo "the Mesa fork at $mesa_fork does not have $mesa_revision" >&2; exit 2; }
 
 if [[ ! -f $source_tree/.revision || $(<"$source_tree/.revision") != "$mesa_revision" ]]; then
-    rm -rf "$source_tree" "$build"
-    mkdir -p "$source_tree"
-    git -C "$mesa_fork" archive "$mesa_revision" | tar -x -C "$source_tree"
+    # The new revision's files replace the old ones by content: a file that
+    # did not change keeps its time, so the build below recompiles only what
+    # the revision touched.
+    staging="$source_tree.new"
+    rm -rf "$staging"
+    mkdir -p "$staging" "$source_tree"
+    git -C "$mesa_fork" archive "$mesa_revision" | tar -x -C "$staging"
+    rsync -rlp --checksum --delete --exclude=/.revision "$staging/" "$source_tree/"
+    rm -rf "$staging"
     printf '%s\n' "$mesa_revision" > "$source_tree/.revision"
 fi
 
@@ -59,7 +66,11 @@ if [[ ! -f $build/build.ninja ]]; then
         -Dxmlconfig=disabled -Dshader-cache=disabled -Dbuild-tests=false -Dvulkan-layers= -Dtools= \
         -Dradv-build-id="$mesa_revision" > "$build.setup.log" 2>&1 ||
         { tail -20 "$build.setup.log" >&2; exit 1; }
+elif [[ $(cat "$build/.radv-build-id" 2>/dev/null) != "$mesa_revision" ]]; then
+    "$meson" configure "$build" -Dradv-build-id="$mesa_revision" > "$build.setup.log" 2>&1 ||
+        { tail -20 "$build.setup.log" >&2; exit 1; }
 fi
+printf '%s\n' "$mesa_revision" > "$build/.radv-build-id"
 "$ninja" -C "$build" src/amd/vulkan/libvulkan_radeon.a > "$build.log" 2>&1 ||
     { grep -E "error|FAILED" "$build.log" | head -20 >&2; exit 1; }
 

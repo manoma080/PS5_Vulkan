@@ -3526,3 +3526,16 @@ and default modes, fp64 in flush). Built with `-fdenormal-fp-math=ieee` (the
 payload SDK's compiler wrappers and tooling/prospero-clang18 pass it now),
 every dEQP-VK.spirv_assembly.instruction.compute.opfma case passes, and
 `fesetround` and `fma` were right all along.
+
+## 2026-09-27 — the rasterizer has no variable-rate shading (RADV)
+
+A triangle covering a 256x256 target, drawn with a 2x2 pipeline fragment
+shading rate (RADV's GFX10.3 programming), ran its fragment shader 65536 times,
+once a texel, and every invocation read `gl_ShadingRateEXT` as 1x1; at 1x1 the
+same draw ran 65536 times as it should (the RADV smoke title's shading-rate
+check). dEQP-VK.fragment_shading_rate agrees: every case whose combined rate
+is 1x1 passed, and every case whose rate from the pipeline, the primitive or
+an attachment combines to anything coarser failed. Like the parameter cache
+and TG_SIZE, this block is GFX10.1's, and GFX10.1 has no VRS. The PS5 GPU
+description clears `radeon_info.has_vrs`, so VK_KHR_fragment_shading_rate is
+not reported.

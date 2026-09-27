@@ -24,3 +24,5 @@ dist/
 
 # CTS logs fetched from the console.
 *.qpa
+# Console klog captures (tools/run-title.py); they stay local.
+Klog_Logs/

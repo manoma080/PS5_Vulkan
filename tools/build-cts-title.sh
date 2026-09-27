@@ -87,5 +87,9 @@ cp "$root/runtime/libc.prx" "$app/sce_module/libc.prx"
 # The CTS's data (images, amber scripts, video clips): 17 MB, the archive
 # directory the platform passes as --deqp-archive-dir.
 rsync -a --delete "$cts/external/vulkancts/data/vulkan/" "$app/cts/vulkan/"
-printf 'CTS title: %s (%s bytes; CTS %s, RADV %s)\n' "$app" "$(stat -c %s "$app/eboot.bin")" \
-    "$(git -C "$cts" rev-parse --short HEAD)" "$(git -C "$mesa" rev-parse --short HEAD)"
+# What this build is, for tools/run-cts.py to note beside the results it runs.
+printf 'CTS %s, RADV %s, eboot.bin sha256 %s\n' \
+    "$(git -C "$cts" describe --always --dirty --abbrev=11 --exclude='*')" \
+    "$(git -C "$mesa" describe --always --dirty --abbrev=11 --exclude='*')" \
+    "$(sha256sum "$app/eboot.bin" | cut -c1-16)" > "$app/cts/build.txt"
+printf 'CTS title: %s (%s bytes; %s)\n' "$app" "$(stat -c %s "$app/eboot.bin")" "$(cat "$app/cts/build.txt")"

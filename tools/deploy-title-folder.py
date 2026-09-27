@@ -9,7 +9,7 @@ build produced (tools/build-radv-title.sh's dist/PPSA99014), with the same
 discipline: each file goes up under a hidden .upload name and replaces its
 destination only once complete, eboot.bin and sce_sys/param.json are published
 last, and files already identical on the console (same size) are skipped
-unless --all. Connection settings are tools/ps5_console.py's (.env).
+unless --all or named with --always. Connection settings are tools/ps5_console.py's (.env).
 
 Fully close the title first: this refuses to run while the console reports a
 running application.
@@ -70,6 +70,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("folder", help="the built title folder, dist/<TITLE_ID>")
     parser.add_argument("--all", action="store_true", help="upload files already on the console too")
+    parser.add_argument("--always", action="append", default=[], metavar="NAME",
+                        help="a file (relative to the folder) to upload even when its size matches")
     args = parser.parse_args()
 
     folder = Path(args.folder)
@@ -93,7 +95,7 @@ def main():
         for name in ordered:
             local = folder / name
             remote = join(base, name)
-            if not args.all and name not in LAST and remote_size(ftp, remote) == local.stat().st_size:
+            if not args.all and name not in LAST and name not in args.always and remote_size(ftp, remote) == local.stat().st_size:
                 skipped += 1
                 continue
             upload(ftp, local, remote, made)

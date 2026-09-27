@@ -23,6 +23,11 @@ exiting) is resumed after the case that ended it. Every result goes to
 build/cts-runs/<run>/results.tsv as it is read, so --run with the same name
 resumes an interrupted run.
 
+Each invocation first uploads dist/PPSA99015 as last built (eboot.bin and
+cts/build.txt always, other files when their size differs), so a run never
+uses an older title than the one built; a batched run notes the build it ran
+(cts/build.txt) in its batches.log. --no-deploy runs what the console has.
+
 Exit status: 0 when every case passed or is not supported, 1 when a case
 failed, 3 when a single run (--case) did not end on its own.
 """
@@ -32,6 +37,7 @@ import collections
 import datetime
 import io
 import re
+import subprocess
 import sys
 import time
 from ftplib import FTP
@@ -226,6 +232,10 @@ def batch_run(settings, args, cases):
             done[name] = status
     args.klog_dir = str(run_dir / "klog")
     Path(args.klog_dir).mkdir(exist_ok=True)
+    build = ROOT / "dist" / TITLE / "cts" / "build.txt"
+    if not args.no_deploy and build.exists():
+        with (run_dir / "batches.log").open("a") as batches:
+            batches.write(f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S} deployed {build.read_text().strip()}\n")
 
     wanted = set(cases)
     pending = [c for c in cases if c not in done]
@@ -323,10 +333,15 @@ def main():
                         help="send the driver's stderr and stdout to a file on the console and fetch it (klog drops "
                              "lines under large dumps such as RADV_DEBUG=shaders)")
     parser.add_argument("--verbose", action="store_true", help="print every case")
+    parser.add_argument("--no-deploy", action="store_true",
+                        help="run the title the console has instead of uploading dist/PPSA99015 first")
     args = parser.parse_args()
     args.klog_dir = None
 
     settings = ps5_console.load_settings()
+    if not args.no_deploy:
+        subprocess.run([sys.executable, str(ROOT / "tools" / "deploy-title-folder.py"), str(ROOT / "dist" / TITLE),
+                        "--always", "cts/build.txt"], check=True)
     if args.case:
         return single_run(settings, args)
     if args.mustpass:
