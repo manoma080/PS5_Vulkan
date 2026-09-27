@@ -304,3 +304,17 @@ verify_location cases tell each sample's triangle apart by gl_PrimitiveID
 with no stage writing it, so they failed with the implicit primitive ID; on
 the fixed driver all 80 (custom and standard locations, every construction
 type) pass and 20 are not supported (run sampleloc-2).
+
+## 2026-09-27 — geometry shaders as compute: transform feedback works
+
+The geometry shaders NGG cannot run here now run as compute with Mesa's poly
+lowering (RADV_GS_COMPUTE.md; Mesa fork branch ps5-gs-compute, 88e5322, not
+yet merged into ps5-port). Every draw command handles them, including
+indirect, indirect count, byte count and primitive restart, and a geometry
+shader with transform feedback outputs always takes this path. Transform
+feedback from a geometry shader, which failed in every case (run xfb-1),
+now works, with its queries: the 6685-case transform_feedback sample goes
+from 1291 passing and 4529 failing to 5818 passing and 2 failing (run
+xfb-gsc-3), and the 2 left use graphics pipeline libraries, which are not
+routed yet. The smoke title passes 73 of 73 with every geometry shader
+forced through compute.

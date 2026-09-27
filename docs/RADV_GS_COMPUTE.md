@@ -1,7 +1,7 @@
 # Geometry shaders the hardware cannot run (RADV, route B)
 
-_Design, 2026-09-27. Slice 1 done on the Mesa fork's branch ps5-gs-compute
-(ae740ef); slice 2 under way._
+_Design, 2026-09-27. Slices 1 to 3 done on the Mesa fork's branch
+ps5-gs-compute (88e5322); slice 4 (pipeline libraries, shader objects) next._
 
 ## Why
 
@@ -106,3 +106,43 @@ Found on the way:
 - With static counts poly makes no count pass and stripped the GS's memory
   writes from the GS proper, the only full run left. The fork's poly strips
   them only when a count pass keeps them (fde2cc2).
+
+## Slice 2 (2026-09-27)
+
+Every draw command handles such a pipeline. Multi-draws run one draw each.
+A draw whose counts live in memory (indirect, indirect count, byte count)
+is sized on the GPU by a meta pass: it reads the arguments, writes poly's
+vertex and geometry parameters, allocates the vertex outputs, counts and
+output indices from a heap each command buffer owns, and writes the
+workgroup counts of the indirect dispatches that follow; the rasterization
+copy draws indirectly. An indexed draw with primitive restart is first
+unrolled on the GPU into an indexed draw of the decomposed list topology. A
+draw too large for 32-bit counts or for the heap draws nothing rather than
+write out of bounds. These passes are RADV's own OpenCL
+(`src/amd/vulkan/cl/radv_gs_compute.cl`), turned into NIR builder functions
+the way poly's are.
+
+The smoke title's draw checks (indexed with a vertex offset, indexed
+indirect, indirect, indirect count, restart direct and indirect) pass on the
+NGG path and with every geometry shader forced through compute: 73 of 73.
+
+## Slice 3 (2026-09-27)
+
+A geometry shader with transform feedback outputs now always runs as
+compute. Its draws continue from the offsets hardware streamout holds: they
+go to memory, poly's pre-GS pass places each draw's output after a prefix sum
+of the counts and advances them, the GS proper writes the buffers, and the
+offsets go back to the hardware before the next draw, so hardware and
+compute capture mix freely within one transform feedback. The rasterization
+copy draws with streamout suspended and no shader query counting.
+
+Primitives generated and written per stream count into memory counters each
+command buffer owns. Transform feedback and primitives generated query
+pools grow by a pair of snapshots of those counters, taken after the
+hardware's at the beginning and the end, and their results add them in.
+
+On the console, the 6685-case transform_feedback sample of run xfb-1 goes
+from 1291 passing and 4529 failing to 5818 passing and 2 failing (run
+xfb-gsc-3; both failures use graphics pipeline libraries, which slice 4
+routes). Nothing that passed fails.
+
