@@ -3576,3 +3576,23 @@ geometry shader's gl_PrimitiveIDIn was right all along. Exported per vertex
 through LDS, as on GFX10.1, the NGG vertex shader's IDs read 0 and 1 too:
 the parameter cache, again, is GFX10.1's
 (ac_compiler_info.has_ngg_per_prim_params).
+
+## 2026-09-27 — a title can load the PS4 GNM driver but call nothing in it
+
+libSceGnmDriver, the PS4 compatibility driver in the system's library
+folder, exports sceGnmSetGsRingSizes (checked by name against its exports),
+PS4 GNM's setter for the legacy GS rings AGC does not expose. From the RADV
+smoke title:
+
+- `sceKernelLoadStartModule` of it (from the sandbox's common/lib) succeeds.
+- An import of it in the title (a stub with its soname) is not bound: the
+  loader does not load it for a PS5 title, and the call jumps to 0.
+- `sceKernelDlsym` finds nothing (0x80020003) in any form, by name, by NID or
+  as NID#library#module, and neither does it for libSceAgcDriver's
+  sceAgcDriverSetTFRing, which the same title imports and calls normally: a
+  title cannot look a symbol up at run time.
+
+So the legacy GS rings stay out of reach, and the geometry shaders NGG cannot
+run go the compute route (RADV_GS_COMPUTE.md). Separately, every run of the
+smoke title ends with a SIGSYS in libkernel during exit(), with or without
+this probe.
