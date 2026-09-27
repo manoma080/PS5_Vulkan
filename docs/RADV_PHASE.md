@@ -92,3 +92,35 @@ come from direct memory (256 concurrent threads had exhausted flexible
 memory); a fill-buffer case asked for a compute-only queue without checking
 for one (backported upstream's check to the CTS fork); and the driver
 rejects layers and reports only the priorities it serves.
+
+## 2026-09-27 — shader objects, host image copy, depth clears
+
+The second pass over main-1's failures (190 cases) left two groups, and a
+rerun of the shader-object geometry cases (181) a third. All three are fixed
+in the Mesa fork, and every one of those cases now passes or is not
+supported.
+
+1. **Geometry shader objects stay NGG.** A GS compiled alone read its NGG
+   mode from a stage that was never initialised, and a VS or TES compiled
+   for a GS disagreed with it (an assertion on user SGPRs, or a lost
+   device). Where no legacy GS can run, every GS and every stage before one
+   is NGG, and merged shaders compiled separately have no NGG culling. The
+   14 cases left need mesh shaders, which this GPU does not have.
+2. **Host image copy.** Vulkan 1.4 asks for hostImageCopy or a second queue
+   that transfers (dEQP-VK.info.device_mandatory_features). Upstream keeps
+   host image copy off on GFX10 for addrlib regressions; they are two bugs
+   in addrlib's microblock copies with GFX10's (non-RB+) swizzles, which
+   this GPU uses: an 8bpp 64KB_R_X microblock is not a rectangle (addrlib
+   trapped), and x3 of a 16bpp 64KB_R_X or 64KB_Z_X microblock also flips
+   address bit 8 (half of each microblock landed in another). addrlib now
+   uses the microblock copies only where a microblock is 256 contiguous
+   bytes of exactly its rectangle. A host check against addrlib's own
+   per-texel address (every mode, 8 to 128 bpp, full mip chains, both
+   directions, memcpy round trips) found both and passes; on the console,
+   dEQP-VK.image.host_image_copy (73291 cases) passes or is not supported,
+   and RADV turns host image copy on for GFX10.
+3. **The depth clear bug** (HARDWARE_FINDINGS.md): the GPU description turns
+   on Mesa's workaround for GFX1013's TC-compatible HTILE clear bug.
+
+Next: the rest of main-1 on this build, with the shader-object group back
+in; transform feedback stays out until a GS can stream out.

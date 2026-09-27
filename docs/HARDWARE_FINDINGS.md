@@ -3437,3 +3437,16 @@ NGG's workgroup repack, which sums per-wave counts with v_dot4_u32_u8. With
 the compiler told the GPU has no accelerated dot products (the v_msad_u8
 fallback NAVI10 uses), every one of those draws covers the target. The RADV
 smoke title's geometry and tessellation checks record both.
+
+## 2026-09-27 — a depth-only HTILE cleared to 0 reads back 1 (RADV)
+
+A depth-only D32_SFLOAT image fast-cleared to 0 (its HTILE, TC-compatible),
+then drawn to with depth writes on and every fragment discarded, read back 1
+where 0 was written (dEQP-VK.dynamic_state.*.discard.depth, 7 of 7). With
+RADV_DEBUG=nohiz or nofastclears the same cases pass, and loading the clear
+value with COPY_DATA instead of LOAD_CONTEXT_REG_INDEX changes nothing. Mesa
+describes exactly this case as the TC-compatible HTILE clear bug of GFX8 and
+GFX1013 (`has_htile_tc_z_clear_bug_*`); with its workaround on
+(ZRANGE_PRECISION 0 after a clear to 0), every dynamic_state discard case and
+the depth and fragment_operations groups pass. The missing integer dot
+products (above) are also GFX1013's.

@@ -4,15 +4,18 @@ Volatile by design. Keep this file under about 120 lines. Specifications are in
 `docs/VULKAN_PROBE_PLAN.md`; measurements are in `docs/M5_PHASE_C.md` and
 `docs/HARDWARE_FINDINGS.md`.
 
-_Updated: 2026-09-26_
+_Updated: 2026-09-27_
 
 ## Now
 **Vulkan 1.4 and the CTS: route B is under way** ([VULKAN_1_4_PLAN.md](VULKAN_1_4_PLAN.md)).
 RADV runs on the console with a PS5 winsys, and CTS 1.4.6.2 runs there as
-PPSA99015; findings and fixes are in [RADV_PHASE.md](RADV_PHASE.md). Next: the
-mustpass groups in batches (`tools/run-cts.py --mustpass <group>`), `api` first,
-each failure fixed as a general driver or winsys change. ps5vk keeps shipping
-until RADV passes the same titles.
+PPSA99015; findings and fixes are in [RADV_PHASE.md](RADV_PHASE.md). The first
+full pass (`main-1`, every mustpass group but transform feedback) is running
+in batches on the Mesa fork at 472752c; each failure becomes a general driver
+or winsys change, then every non-pass case is rerun. Open: streamout from a
+GS, a tessellated GS amplifying past 256 vertices, and a compute queue (AGC's
+asynchronous compute, a probe still to write). ps5vk keeps shipping until
+RADV passes the same titles.
 
 **Dolphin (Wind Waker) through ../PS5_RetroArch is the priority.** Every
 driver fault it shows is reduced to a runner probe, fixed as a general Vulkan
