@@ -175,3 +175,22 @@ being reported (each group now reads not supported):
   ray tracing off until the build runs.
 - A tessellation distribution mode does not rescue the GS amplification
   limit: the limits cases lost the device in all four modes.
+
+Then three more from main-1's glsl and barycentric groups, each measured on
+the console first (HARDWARE_FINDINGS.md has the measurements):
+
+- **Fragment shader barycentrics** are no longer reported: this GPU's
+  parameter cache is GFX10.1's, and per-vertex inputs of a second triangle
+  arrived rotated whatever ROTATE_PC_PTR said (`radeon_info.
+  has_ps_strict_vertex_order`; upstream draws the same line at GFX10.3). The
+  smoke title's probes reproduce it: one triangle of either winding reads in
+  order, the CTS's pair of triangles does not.
+- **Depth mip layout.** addrlib now gets GFX1013's revision: with Navi10's it
+  laid out 8 and 16 bpp depth mips without the mipmap fix the console's depth
+  block follows, and shadow textures were written past their end.
+- **The IEEE floating-point state.** The console starts a title with
+  flush-to-zero and denormals-are-zero; the CTS's double-precision reference
+  intervals flushed denormal quotients and rejected correct results. The
+  platform's `ps5_fp_ieee()` now runs first in every PS5_Vulkan title, and
+  threads inherit their creator's MXCSR. RetroArch gets the same call when it
+  moves to the platform helpers.
