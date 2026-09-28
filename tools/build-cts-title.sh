@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # PS5 Vulkan - build the Vulkan CTS title (PPSA99015).
-# Copyright (C) 2026 Mihawk
+# Copyright (C) 2026 Mihawk-99
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # deqp-vk from my CTS fork (../PS5_VK-GL-CTS, branch ps5-port: the
-# vulkan-cts-1.4.5.3 release with a PlayStation 5 platform, DEQP_TARGET=ps5)
+# vulkan-cts-1.4.6.2 release with a PlayStation 5 platform, DEQP_TARGET=ps5)
 # linked with RADV (tools/radv-link.sh) into dist/PPSA99015. The CTS's own
 # build compiles everything; its final link is replaced by this title's, whose
 # inputs are read from that build's graph: every object and archive deqp-vk

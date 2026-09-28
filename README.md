@@ -1,26 +1,35 @@
 # PS5Vulkan
 
-**A Vulkan 1.1 driver and a hardware compatibility probe for the PlayStation 5.**
+**Vulkan for the PlayStation 5: Mesa's RADV on a PS5 winsys, on its way to a
+conformant Vulkan 1.4 device; ps5vk, the first driver; and the hardware probe
+behind both.**
 
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
 [![Tooling](https://github.com/mihawk-99/PS5_Vulkan/actions/workflows/tooling.yml/badge.svg)](https://github.com/mihawk-99/PS5_Vulkan/actions/workflows/tooling.yml)
 
-This repository builds a real Vulkan driver for the PS5's GPU — a Mesa-derived
-Vulkan 1.1 implementation that programs the console's own AGC command backend
-and VideoOut display — together with the probe harness that proves, one
-capability at a time on real hardware, what that GPU actually does. It is a
+This repository builds Vulkan drivers for the PS5's GPU, together with the probe
+harness that proves, one capability at a time on real hardware, what that GPU
+actually does. The driver going forward is **RADV**, Mesa's Vulkan driver for AMD
+GPUs, built from my Mesa fork with a PS5 winsys that allocates, submits and
+presents through the console's exported AGC, kernel and VideoOut functions
+([The RADV port](#the-radv-port)). **ps5vk**, the first driver, is a Mesa-derived
+Vulkan 1.1 implementation that programs AGC and VideoOut itself; it keeps
+shipping in the titles that have not moved to RADV yet. It is a
 companion to the [PS5 OpenGL SDK](https://github.com/blackbearreloaded/ps5-opengl)
 (release 0.3.0, adapted into `.deps/native/opengl-sdk` by
 [`tools/adapt-opengl-sdk.sh`](tools/adapt-opengl-sdk.sh)) and is developed with
 the public [ps5-payload-dev/sdk](https://github.com/ps5-payload-dev/sdk)
 toolchain.
 
-> The physical device reports Vulkan **1.0**. Command, limit and format audits
-> and targeted console probes document its coverage; they do not establish full
-> Vulkan conformance. Known semantic limitations remain. Current work prioritizes
-> stable, playable and faster vkQuake; console CTS is outside that work.
+> RADV reports Vulkan **1.4** and runs the Khronos CTS on the console; its
+> `conformanceVersion` stays 0.0.0.0 until the pinned 1.4 CTS passes in full
+> there, and every case it does not pass yet, and every "not supported" the port
+> itself causes, is listed with its owner in [docs/CTS_GAPS.md](docs/CTS_GAPS.md).
+> ps5vk reports Vulkan 1.1, documented by command, limit and format audits and
+> targeted console probes rather than by the CTS.
 
 **Contents:**
+[The RADV port](#the-radv-port) ·
 [Progress and roadmap](#progress-and-roadmap) ·
 [vkQuake and performance](#vkquake-and-performance) ·
 [What this is](#what-this-is--and-what-it-is-not) ·
@@ -32,6 +41,77 @@ toolchain.
 [License](#license-credits-and-trademarks)
 
 ---
+
+## The RADV port
+
+Route B of [docs/VULKAN_1_4_PLAN.md](docs/VULKAN_1_4_PLAN.md): RADV stays whole,
+and only what the console does differently from Linux is new. The changes live in
+my Mesa fork (`../PS5_Mesa`, branch `ps5-port`: Mesa 26.2.0 with
+`-Dradv-winsys=ps5`), pinned here by revision in
+[`tools/build-radv.sh`](tools/build-radv.sh); gaps in the console's platform
+(kernel declarations, libc, direct memory) go into the payload SDK fork's shared
+platform layer, not into the Mesa fork. [docs/RADV_PHASE.md](docs/RADV_PHASE.md)
+is the round-by-round record.
+
+```text
+  application (vkQuake, the CTS, the smoke test)
+        |
+  RADV + ACO + NIR ............ Mesa 26.2.0, unchanged but where the console
+        |                       differs (a GC 10.1.3 fixed-function block
+        |                       beside GFX10.3 shaders, below)
+  PS5 winsys .................. memory from direct memory, command streams
+        |                       copied into the ring as sceAgcDriverSubmitDcb
+        |                       submissions, each ending with a write of its
+        |                       sequence number, which the CPU waits for
+  VK_KHR_display on VideoOut .. the swapchain: buffers registered with
+        |                       VideoOut, flipped at vblank, 120 Hz where the
+        |                       title declares it and the display takes it
+  PS5 GPU
+```
+
+What stands on the console (2026-09-28):
+
+- **The full CTS runs on the console.** The first full run of the pinned
+  1.4 CTS (vulkan-cts-1.4.6.2, my fork `../PS5_VK-GL-CTS`, title PPSA99015)
+  ended with 2,786,062 cases: 1,098,388 pass, 12,005 did not pass and 1,675,626
+  were not supported. Since then the failures have been fixed or traced
+  (10,560 of them belong to features switched off during that run: variable-rate
+  shading and fragment barycentrics, which the hardware lacks, and capture and
+  replay addresses, since implemented), and the port gained compute and transfer queue
+  families (on the graphics ring), host-cached memory types, tessellation and
+  geometry shaders run as compute where the fixed-function block cannot,
+  ray queries and pipelines, sparse resources, calibrated timestamps and the
+  VideoOut swapchain, each proved by a targeted CTS run of the groups behind it
+  ([docs/CTS_GAPS.md](docs/CTS_GAPS.md)). The next full run comes once every
+  item there is closed.
+- **vkQuake ships on RADV.** Since 2026-09-28 the vkQuake title builds against
+  the release archive by default and runs its demo loop at 119.88 fps, one
+  vblank a frame, in the display's 120 Hz mode (PS5_vkQuake
+  `evidence/radv-r2-main`). Its start-up is still slower than ps5vk's: first
+  present 3.2 s after start, without a shader cache.
+- **Not there yet:** mesh shaders (behind `RADV_PS5_MESH` while a workgroup that
+  goes out in parts still runs its side effects once but not its results),
+  task shaders, concurrency between queues (in the backlog), and RetroArch,
+  whose PPSSPP, Dolphin and LRPS2 cores stay on ps5vk until they pass on RADV.
+
+Building it:
+
+```bash
+tools/setup-native-dependencies.sh   # the payload SDK fork at its pin
+tools/build-radv.sh                  # .deps/native/radv: assertions on, for the smoke test and CTS
+tools/build-radv.sh release          # .deps/native/radv-release: what titles ship
+tools/build-radv-title.sh            # the smoke test title, PPSA99014
+tools/build-cts-title.sh             # the CTS title, PPSA99015 (tools/run-cts.py runs it)
+```
+
+Titles link the archive with [`tools/radv-link.sh`](tools/radv-link.sh);
+`RADV_ARCHIVE` names another one, such as the fork's own build while a change
+to it is being worked on. Mesa's assertions and NIR validation make shader
+compiles 5 to 6 times slower (docs/HARDWARE_FINDINGS.md), which is why titles
+link the release build.
+
+The rest of this README is mostly ps5vk's story: the probes, the findings both
+drivers rely on, and the vkQuake and RetroArch work done on it.
 
 ## Progress and roadmap
 
@@ -56,7 +136,9 @@ toolchain.
   30-second watch recording zero refusals
   ([evidence](evidence/fragment-inputs/),
   [findings](docs/HARDWARE_FINDINGS.md)).
-- ✅ **vkQuake runs at up to 120 FPS at 4K.** Walking the start map, every frame
+- ✅ **vkQuake runs at up to 120 FPS at 4K** — on ps5vk, and since 2026-09-28
+  on RADV, which it now ships with ([The RADV port](#the-radv-port)). On ps5vk,
+  walking the start map, every frame
   takes 8.29–8.40 ms (119.88 FPS) on a 4K120 VRR display with kstuff paused;
   4K readbacks verify textured worlds, warps, particles, menu alpha and the HUD.
   Systematic gameplay acceptance continues. See
@@ -115,12 +197,11 @@ toolchain.
 
 ### ❌ Not yet
 
-- ❌ **No console CTS acceptance or conformance certification.** Host results
-  and the console payload's outstanding work are recorded in
-  [docs/CTS.md](docs/CTS.md). Audits do not substitute for semantic conformance;
-  CTS is deferred while game stability and performance are the priority.
-- ❌ **Rungs 1.1 → 1.4.** The goal is a Vulkan 1.4 device; each rung is its own
-  commit, gated by a CTS subset for that version.
+- ❌ **No conformance yet.** The console CTS runs on RADV, and what remains
+  before its next full run is in [docs/CTS_GAPS.md](docs/CTS_GAPS.md); ps5vk's
+  host results are in [docs/CTS.md](docs/CTS.md).
+- ❌ **Rungs 1.1 → 1.4 on ps5vk.** Superseded: the Vulkan 1.4 device is RADV
+  ([The RADV port](#the-radv-port)).
 - ✅ **The SDK fork's compiler is migrated.** The driver links ps5-opengl
   0.3.0's own `opengnm-psbc` tree (metadata version 14, this repository's
   patches re-applied on top), assembled and verified against the release's own
@@ -176,16 +257,19 @@ toolchain.
 | **Rung 1.0 audits** | Entry-point, limit and format accounting; targeted console probes | ✅ audits: commands 90/47/0/0, limits 0 missing, formats 0 missing; semantic limitations remain |
 | M5 E | The SDK fork's compiler (metadata 14) migrated and re-proven | ✅ migrated and re-proven |
 | — | The console SIGFPE at `jobs/aco-min` | ✅ fixed: the runner's sampled-format table ran a row it never filled in |
-| Rung 1.1–1.4 | One commit a rung, each gated by a CTS subset | ❌ |
+| Rung 1.1–1.4 | ps5vk: one commit a rung, each gated by a CTS subset | superseded by RADV |
+| RADV | Mesa's RADV on a PS5 winsys, Vulkan 1.4, the full CTS on the console | 🔄 CTS gaps being closed; vkQuake ships on it |
 | Phase E1 | CTS-style semantic validation against the advertised set | ❌ recipe written |
-| Real applications | RetroArch ✅ · PPSSPP (hardware-rendered) ✅ tested games · vkQuake at up to 120 FPS at 4K, acceptance 🔄 · other frontends ❌ | 🔄 in progress |
+| Real applications | RetroArch ✅ (ps5vk) · PPSSPP (hardware-rendered) ✅ tested games (ps5vk) · vkQuake at up to 120 FPS at 4K, on RADV since 2026-09-28, acceptance 🔄 · other frontends ❌ | 🔄 in progress |
 
 ## vkQuake and performance
 
 The native PS5 vkQuake port in the sibling `../PS5_vkQuake` checkout links this
-repository's static driver archives; its README covers installation, controls
-and the console settings below. The exact tested driver and what is pending are
-in the [active state](docs/VULKAN_PROBE_ACTIVE.md).
+repository's RADV release archive since 2026-09-28 (ps5vk's archives with
+`PS5_VULKAN_DRIVER=ps5vk`); its README covers installation, controls and the
+console settings below. This section is the ps5vk work that got it to 120 FPS;
+the exact tested ps5vk driver and what is pending are in the
+[active state](docs/VULKAN_PROBE_ACTIVE.md).
 
 The compatibility rounds cover vertex stride, dynamic UBO offsets, descriptor
 arrays, padded pitches and mip tails, 32-bit indices, depth state leaking into
@@ -234,21 +318,23 @@ nothing ([R47](jobs/r47-shipped-cache/)).
 ## What this is — and what it is not
 
 **It is** a probe that answers "what does this console's GPU actually do" with
-console runs instead of assumptions, and a Vulkan 1.0 driver built on those
-answers: a Mesa-derived frontend, the NIR/ACO shader compiler, and a
-PS5-specific AGC and VideoOut backend.
+console runs instead of assumptions, and two drivers built on those answers:
+RADV with a PS5 winsys, and ps5vk, a Mesa-derived frontend with the NIR/ACO
+shader compiler and a PS5-specific AGC and VideoOut backend.
 
 **It is not** a Sony SDK, a retail-package builder, an exploit, or a conformance
 submission. It ships no Sony file, no key and no game content. It needs a
 homebrew-enabled console that you own, and it never configures that console for
-you. The device reports 1.1 (R84; the 1.1 row of docs/M5_REFERENCE.md stays
+you. ps5vk reports 1.1 (R84; the 1.1 row of docs/M5_REFERENCE.md stays
 open until the console CTS runs), with coverage recorded command by command,
 limit by limit and format by format. The audits, targeted pixel proofs and working
 applications are evidence of progress, not a claim of certified conformance.
 
 ## How it works
 
-### The stack
+### The stack (ps5vk)
+
+RADV's is under [The RADV port](#the-radv-port).
 
 ```text
   application (vkQuake, RetroArch, Vulkan Tutorial, probe runner)
@@ -264,8 +350,8 @@ applications are evidence of progress, not a claim of certified conformance.
   PS5 GPU
 ```
 
-Nothing Linux-specific crosses over: no `amdgpu`, no DRM, no ioctls, no RADV
-queue submission. The driver programs AGC directly, and the PS5-specific parts —
+Nothing Linux-specific crosses over: no `amdgpu`, no DRM, no ioctls. ps5vk
+programs AGC directly, and the PS5-specific parts —
 tile maps, descriptor words, register values, synchronization — exist in this
 repository because a console run measured them.
 
@@ -289,7 +375,7 @@ repository because a console run measured them.
 4. The result lands in a phase log and, when it changes a rule, in
    [`docs/HARDWARE_FINDINGS.md`](docs/HARDWARE_FINDINGS.md).
 
-### What the device reports (rung 1.0)
+### What ps5vk reported at rung 1.0
 
 | Property | Value |
 | --- | --- |
@@ -444,6 +530,9 @@ python3 tools/ps5_console.py payload           # -> ok ps5vkctl 1 pid=<n>
 ```
 
 ### 3. Build
+
+RADV's build is under [The RADV port](#the-radv-port). ps5vk, the probe
+shaders and the titles:
 
 ```bash
 tools/fetch-mesa.sh            # pinned Mesa 26.2.0, checksum-verified, into .deps/

@@ -653,3 +653,22 @@ every steady window, one vblank a frame, taking the 120 Hz mode the title
 declares; first present 3.3 s after start, the pipelines 0.69 s without a
 shader cache (PS5_vkQuake evidence/radv-r1-demo). The installed title was
 put back to the ps5vk build afterwards.
+
+## 2026-09-28 — vkQuake ships on RADV
+
+`tools/build-radv.sh` pins the fork's ps5-port at 7e30f3e (the VideoOut
+swapchain merged) and gained a release variant: `tools/build-radv.sh release`
+builds the same revision with Mesa's assertions off (debugoptimized,
+b_ndebug=true) into .deps/native/radv-release, in 81 s from a fresh tree; the
+default build keeps them for the smoke test and the CTS. PS5_vkQuake's `main`
+now links that release archive by default (PS5_VULKAN_DRIVER=ps5vk still builds
+ps5vk), and the installed title is that build: the demo loop at 119.88 fps, one
+vblank a frame; first present 3.23 s after start, 2.07 s of it RADV's device
+and the swapchain with the 120 Hz switch, 0.62 s the pipelines, which nothing
+caches yet (PS5_vkQuake evidence/radv-r2-main). Start-up is open work.
+
+Before that build, the installed vkQuake had stopped launching: the ps5vk
+eboot.bin put back after the first RADV run was a copy read off the console
+over FTP, which returns signed executables decrypted, and the loader refused
+the plain ELF (sceSblAuthMgrAuthHeader error 46, launch error 0x80020008).
+A title is restored by deploying a build, never by writing back what FTP read.
