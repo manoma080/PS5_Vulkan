@@ -13,8 +13,9 @@ actually does. The driver going forward is **RADV**, Mesa's Vulkan driver for AM
 GPUs, built from my Mesa fork with a PS5 winsys that allocates, submits and
 presents through the console's exported AGC, kernel and VideoOut functions
 ([The RADV port](#the-radv-port)). **ps5vk**, the first driver, is a Mesa-derived
-Vulkan 1.1 implementation that programs AGC and VideoOut itself; it keeps
-shipping in the titles that have not moved to RADV yet. It is a
+Vulkan 1.1 implementation that programs AGC and VideoOut itself. vkQuake and
+PS5 RetroArch have moved to RADV; ps5vk stays their `PS5_VULKAN_DRIVER=ps5vk`
+build option. It is a
 companion to the [PS5 OpenGL SDK](https://github.com/blackbearreloaded/ps5-opengl)
 (release 0.3.0, adapted into `.deps/native/opengl-sdk` by
 [`tools/adapt-opengl-sdk.sh`](tools/adapt-opengl-sdk.sh)) and is developed with
@@ -46,15 +47,16 @@ toolchain.
 
 Route B of [docs/VULKAN_1_4_PLAN.md](docs/VULKAN_1_4_PLAN.md): RADV stays whole,
 and only what the console does differently from Linux is new. The changes live in
-my Mesa fork (`../PS5_Mesa`, branch `ps5-port`: Mesa 26.2.0 with
-`-Dradv-winsys=ps5`), pinned here by revision in
+my Mesa fork ([PS5_Mesa](https://github.com/mihawk-99/PS5_Mesa), checked out
+as `../PS5_Mesa`, branch `main`: Mesa 26.2.0 with `-Dradv-winsys=ps5`), pinned
+here by revision in
 [`tools/build-radv.sh`](tools/build-radv.sh); gaps in the console's platform
 (kernel declarations, libc, direct memory) go into the payload SDK fork's shared
 platform layer, not into the Mesa fork. [docs/RADV_PHASE.md](docs/RADV_PHASE.md)
 is the round-by-round record.
 
 ```text
-  application (vkQuake, the CTS, the smoke test)
+  application (vkQuake, RetroArch, the CTS, the smoke test)
         |
   RADV + ACO + NIR ............ Mesa 26.2.0, unchanged but where the console
         |                       differs (a GC 10.1.3 fixed-function block
@@ -82,35 +84,43 @@ What stands on the console (2026-09-28):
   geometry shaders run as compute where the fixed-function block cannot,
   ray queries and pipelines, sparse resources, calibrated timestamps and the
   VideoOut swapchain, each proved by a targeted CTS run of the groups behind it
-  ([docs/CTS_GAPS.md](docs/CTS_GAPS.md)). The next full run comes once every
-  item there is closed.
+  ([docs/CTS_GAPS.md](docs/CTS_GAPS.md)). With every item there closed, the
+  second full run, full-1, started on 2026-09-28 on RADV `ecf916d`: 560,000
+  of its 2,919,757 cases have run, and none has failed (228,553 pass, 8
+  quality warnings, the rest not supported).
 - **vkQuake ships on RADV.** Since 2026-09-28 the vkQuake title builds against
   the release archive by default and runs its demo loop at 119.88 fps, one
   vblank a frame, in the display's 120 Hz mode (PS5_vkQuake
   `evidence/radv-r2-main`). Since the same day RADV keeps its compiled
-  pipelines in an on-disk cache in the title's folder: first present 3.8 s
-  after start from an empty cache, 2.7 s with it filled, of which the
-  pipelines take 0.14 s. The rest, about 2.5 s of device and swapchain
-  start-up against ps5vk's 0.55–0.77 s to a first frame, is still open.
+  pipelines in an on-disk cache in the title's folder, and since its
+  exclusive mode (below) the first present comes 3.77 s after start from an
+  empty cache and 2.44 s with it filled, of which the pipelines take 0.01 s.
+  The rest, device and swapchain start-up against ps5vk's 0.55–0.77 s to a
+  first frame, is still open.
 - **Mesh and task shaders** are reported since 2026-09-28, though the GPU has
   neither per-primitive parameters nor the CP's task and mesh dispatch
   packets: mesh workgroups go out in parts that share one run's outputs, and
   task shaders run on the graphics ring in chunks (docs/RADV_PHASE.md).
-- **RetroArch on RADV** ran on the console for the first time on 2026-09-28
-  (PS5_RetroArch's `radv` branch): the menu, PPSSPP (God of War: Ghost of
-  Sparta), Dolphin (Wind Waker) and LRPS2 (GTA San Andreas) render, at full
-  speed once the shader cache is filled, and the PPSSPP and LRPS2 pictures
-  match ps5vk's (Dolphin's was not compared). PPSSPP needed a fix of its own:
-  it used Vulkan 1.2 commands on a 1.1 instance.
-  RetroArch's release battery passes on RADV as it did on ps5vk: every core
-  with a game, closing and reloading content through the Quick Menu, threaded
-  video, and a ten-minute PPSSPP soak.
+- **RetroArch ships on RADV.** [PS5 RetroArch](https://github.com/mihawk-99/PS5_RetroArch)
+  v0.5.0-alpha.5 (2026-09-28) is its first release on RADV: the menu, the
+  software cores, PPSSPP (God of War: Ghost of Sparta), Dolphin (Wind Waker)
+  and LRPS2 (GTA San Andreas) render, at full speed once a game has booted,
+  and the PPSSPP and LRPS2 pictures match ps5vk's. PPSSPP needed a fix of its
+  own: it used Vulkan 1.2 commands on a 1.1 instance. RetroArch's release
+  battery passes on RADV as it did on ps5vk: every core with a game, closing
+  and reloading content through the Quick Menu, threaded video, and a
+  ten-minute PPSSPP soak.
+- **The shader cache** is Mesa's cache database (`MESA_DISK_CACHE_DATABASE`)
+  in the title's `radv-shader-cache/` folder, keyed by the pinned Mesa revision and open to
+  the console's FTP service. On the console it runs in an exclusive mode,
+  where each part stays open for the process instead of being reopened and
+  locked on every read (docs/RADV_PHASE.md). Shader compiles on several
+  threads no longer wait on one heap lock: the payload SDK fork's platform
+  heap gives each thread an arena of its own.
 - **Not there yet:** concurrency between queues (in the backlog), and
-  Dolphin's boot with an empty shader cache, which compiles its ubershaders
-  and loses 17% and 8% of its first two 10 s windows on RADV. PPSSPP's compiles
-  no longer cost it speed since the platform heap gives each thread an arena
-  of its own (below). Until Dolphin's boot is answered RetroArch's cores stay
-  on ps5vk.
+  Dolphin's first start of a game with an empty shader cache, which compiles
+  its ubershaders and loses 17% and 8% of its first two 10 s windows on RADV
+  (ps5vk: 14% and 1%).
 
 Building it:
 
@@ -215,9 +225,10 @@ drivers rely on, and the vkQuake and RetroArch work done on it.
 
 ### ❌ Not yet
 
-- ❌ **No conformance yet.** The console CTS runs on RADV, and what remains
-  before its next full run is in [docs/CTS_GAPS.md](docs/CTS_GAPS.md); ps5vk's
-  host results are in [docs/CTS.md](docs/CTS.md).
+- ❌ **No conformance yet.** The console CTS runs on RADV; its second full
+  run (full-1) is in progress, and what the first left open is closed in
+  [docs/CTS_GAPS.md](docs/CTS_GAPS.md). ps5vk's host results are in
+  [docs/CTS.md](docs/CTS.md).
 - ❌ **Rungs 1.1 → 1.4 on ps5vk.** Superseded: the Vulkan 1.4 device is RADV
   ([The RADV port](#the-radv-port)).
 - ✅ **The SDK fork's compiler is migrated.** The driver links ps5-opengl
@@ -276,9 +287,9 @@ drivers rely on, and the vkQuake and RetroArch work done on it.
 | M5 E | The SDK fork's compiler (metadata 14) migrated and re-proven | ✅ migrated and re-proven |
 | — | The console SIGFPE at `jobs/aco-min` | ✅ fixed: the runner's sampled-format table ran a row it never filled in |
 | Rung 1.1–1.4 | ps5vk: one commit a rung, each gated by a CTS subset | superseded by RADV |
-| RADV | Mesa's RADV on a PS5 winsys, Vulkan 1.4, the full CTS on the console | 🔄 CTS gaps being closed; vkQuake ships on it |
+| RADV | Mesa's RADV on a PS5 winsys, Vulkan 1.4, the full CTS on the console | 🔄 second full CTS run in progress; vkQuake and RetroArch ship on it |
 | Phase E1 | CTS-style semantic validation against the advertised set | ❌ recipe written |
-| Real applications | RetroArch ✅ (ps5vk) · PPSSPP (hardware-rendered) ✅ tested games (ps5vk) · vkQuake at up to 120 FPS at 4K, on RADV since 2026-09-28, acceptance 🔄 · other frontends ❌ | 🔄 in progress |
+| Real applications | RetroArch ✅ (ps5vk, and RADV since v0.5.0-alpha.5) · PPSSPP, Dolphin and LRPS2 (hardware-rendered) ✅ tested games · vkQuake at up to 120 FPS at 4K, on RADV since 2026-09-28, acceptance 🔄 · other frontends ❌ | 🔄 in progress |
 
 ## vkQuake and performance
 
@@ -325,7 +336,9 @@ names another base for tests. Since R46 the driver's internal NIR stages are
 cached too, and the port ships each build's compiled set, so a launch compiles
 nothing ([R47](jobs/r47-shipped-cache/)).
 
-### What is still open
+### What is still open on ps5vk
+
+RADV offers both of these; they are ps5vk's own gaps.
 
 - **MSAA beyond 4×, with render pass 2.** PPSSPP's MSAA needs
   `VK_KHR_create_renderpass2` and depth/stencil resolve, and 8 samples; neither
@@ -477,8 +490,9 @@ assumption. The evidence for every one is in
 | [`vendor/`](vendor/) | Link-time import stubs for the console's own libraries (AGC and the canaries' imports), so a title links without the Sony SDK |
 | [`tests/`](tests/) | Host unit and integration tests, including the queue and audit guards |
 
-Five titles build from this tree. Four are canaries or diagnostics; one is the
-runner that produces the evidence:
+Five titles build from this tree with `make` and `tools/build-all-titles.sh`.
+Four are canaries or diagnostics; one is the runner that produces the
+evidence. The RADV scripts build two more:
 
 | Title | What it is |
 | --- | --- |
@@ -487,6 +501,8 @@ runner that produces the evidence:
 | `PPSA99997` | The AGC driver canary |
 | `PPSA99998` | The linked canary with the complete-state canary |
 | `PPSA99996` | The live-submission canary |
+| `PPSA99014` | RADV's smoke test (`tools/build-radv-title.sh`) |
+| `PPSA99015` | The Khronos CTS on RADV (`tools/build-cts-title.sh`, run by `tools/run-cts.py`) |
 
 ## Getting started
 
@@ -663,6 +679,8 @@ the tree.
 | [ps5-opengl](https://github.com/blackbearreloaded/ps5-opengl) | BlackBearReloaded | The sibling PS5 OpenGL SDK: the pinned `opengnm-psbc` shader-compiler tree (Mesa NIR + ACO), the C shader-package writer, register knowledge, and the Mesa version pin | Release 0.3.0, adapted into `.deps/native/opengl-sdk` by `tools/adapt-opengl-sdk.sh` (`PS5_OPENGL_SDK` overrides) |
 | [ps5-native-app-boilerplate](https://github.com/blackbearreloaded/ps5-native-app-boilerplate) | BlackBearReloaded | This repository's foundation: the PS5 ELF converter, the FSELF writer, the clean-room `libc.prx`, and the identity and packaging tooling | The base of this repository (GPL-3.0-or-later) |
 | [ps5-payload-dev/sdk](https://github.com/ps5-payload-dev/sdk) | ps5-payload-dev (John Törnblom) | Public PS5 headers and sysroot, the `prospero-clang18`/`lld` target toolchain, and libc++ headers | Fetched, pinned to v0.42 by SHA-256 |
+| [PS5_PayloadSDK](https://github.com/mihawk-99/PS5_PayloadSDK) | Mihawk-99, on ps5-payload-dev's SDK | My fork of the payload SDK with the shared platform layer (heap, direct and executable memory, libc gaps) RADV's winsys and the titles build on | Built by `tools/setup-native-dependencies.sh` at a pinned revision |
+| [PS5_Mesa](https://github.com/mihawk-99/PS5_Mesa) | Mihawk-99, on Mesa | My Mesa fork: RADV, ACO and NIR with the PS5 winsys and VideoOut WSI | Exported at a pinned revision by `tools/build-radv.sh` from `../PS5_Mesa` |
 | [ps5-payload-dev/pacbrew-repo](https://github.com/ps5-payload-dev/pacbrew-repo) | ps5-payload-dev | Optional prebuilt PS5 ports (SDL2, OpenSSL, …) for applications | Optional, pinned to v0.40.2 |
 | [opengnm-psbc](https://github.com/PS4-OpenGNM/opengnm-psbc) | PS4-OpenGNM | The Mesa-derived shader compiler (NIR + ACO) the driver links for SPIR-V, and the tree the 0.3.0 SDK patches | Fetched by the SDK's patch over its pinned revision; this project's compiler patches are re-applied on top (`tooling/psbc/`) |
 | [ps5-vulkan](https://github.com/mpereiraesaa/ps5-vulkan) | mpereiraesaa | A second native PS5 Vulkan implementation: its per-format console evidence and its reporting inventory are cross-checks for this project's audit | Reference; read, not fetched or linked |
@@ -670,7 +688,7 @@ the tree.
 | [LLVM / Clang](https://github.com/llvm/llvm-project) | The LLVM project | The host compiler, and the target compiler the payload SDK packages | Host packages plus the SDK's toolchain |
 | PS5 system modules (AGC, VideoOut) | Sony Interactive Entertainment | The console's real GPU command, register and display interfaces | Used on the console through the SDK's published import stubs; never redistributed |
 | [AMD GPU documentation](https://llvm.org/docs/AMDGPUUsage.html) · [BC-250 documentation](https://elektricm.github.io/amd-bc250-docs/hardware/specifications/) | AMD; elektricm | Instruction definitions, register fields, and an external reference for the PS5-derived BC-250 board | Reference |
-| [Vulkan-Docs](https://github.com/KhronosGroup/Vulkan-Docs) · [Vulkan-CTS](https://github.com/KhronosGroup/Vulkan-CTS) | Khronos Group | The version requirement tables the ladder is built from (pinned v1.4.354) and the conformance subsets Phase E1 will run | Pinned docs; the CTS is the next gate |
+| [Vulkan-Docs](https://github.com/KhronosGroup/Vulkan-Docs) · [Vulkan-CTS](https://github.com/KhronosGroup/Vulkan-CTS) | Khronos Group | The version requirement tables the ladder is built from (pinned v1.4.354), and the conformance suite RADV is gated on | Pinned docs; the CTS is vulkan-cts-1.4.6.2 in my fork `../PS5_VK-GL-CTS`, with its PS5 platform, built by `tools/build-cts-title.sh` |
 | [GoogleTest](https://github.com/google/googletest) | Google | The host-only unit-test framework | Fetched, pinned to 1.17.0; never linked into console output |
 | [zlib](https://zlib.net/) | Jean-loup Gailly and Mark Adler | Compression for the host FSELF tool | Fetched, pinned to 1.3.2 |
 | [bc7enc_rdo](https://github.com/richgel999/bc7enc_rdo) | Richard Geldreich | The BC7 encoder behind presentation-image conversion | Optional, pinned revision `b9438627` |

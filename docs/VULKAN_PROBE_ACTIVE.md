@@ -4,28 +4,20 @@ Volatile by design. Keep this file under about 120 lines. Specifications are in
 `docs/VULKAN_PROBE_PLAN.md`; measurements are in `docs/M5_PHASE_C.md` and
 `docs/HARDWARE_FINDINGS.md`.
 
-_Updated: 2026-09-27_
+_Updated: 2026-09-28_
 
 ## Now
 **Vulkan 1.4 and the CTS: route B is under way** ([VULKAN_1_4_PLAN.md](VULKAN_1_4_PLAN.md)).
 RADV runs on the console with a PS5 winsys, and CTS 1.4.6.2 runs there as
-PPSA99015; findings and fixes are in [RADV_PHASE.md](RADV_PHASE.md). After
-the first full pass (`main-1`), the merged driver's targeted rerun
-(`merged-1`, 311,927 cases) ended with 211,504 pass and every case that did
-not pass accounted for; its crashes are fixed and proved. On ps5-port: ray
-queries and ray tracing pipelines, geometry shaders as compute, sparse
-resources, capture and replay, calibrated timestamps, placed maps, the
-GFX1013 traits, headless swapchains. On branches, each with its console gate
-queued: shader objects with a geometry shader (ps5-gs-objects), tessellation
-with a geometry shader as compute (ps5-gs-tess), mesh shaders without task
-shaders (ps5-mesh, first measured behind RADV_PS5_MESH), a compute and
-transfer queue family on the graphics ring (ps5-queues; real concurrency is
-in the backlog), and an integrated-GPU memory description with host-cached
-types (ps5-memtypes, waiting on the smoke title's coherence probe). Open: the
-sparse descriptor buffer cases with 32 buffers, which run past the CTS's
-watchdog. No full CTS rerun until every item in [CTS_GAPS.md](CTS_GAPS.md)
-is closed by a targeted run. ps5vk keeps shipping until RADV passes the same
-titles.
+PPSA99015; findings and fixes are in [RADV_PHASE.md](RADV_PHASE.md). Every
+item in [CTS_GAPS.md](CTS_GAPS.md) is closed by a targeted run, and the
+second full run (full-1, RADV ecf916d) is in progress: no failure at 560,000
+of 2,919,757 cases. The Mesa fork's work is all on its `main` branch.
+vkQuake and PS5 RetroArch (v0.5.0-alpha.5) ship on RADV's release archive
+(cedb774), with the on-disk shader cache in its exclusive mode; ps5vk is
+their `PS5_VULKAN_DRIVER=ps5vk` build option. Open: concurrency between
+queues (backlog), and Dolphin's first start of a game with an empty shader
+cache (83% and 92% for its first two 10 s windows, ps5vk 86% and 99%).
 
 **Dolphin (Wind Waker) through ../PS5_RetroArch is the priority.** Every
 driver fault it shows is reduced to a runner probe, fixed as a general Vulkan

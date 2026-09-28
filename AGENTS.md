@@ -94,7 +94,9 @@ faults out of the default queues for a reason.
 
 ## Working rules
 
-- Commit finished, verified work; never push, and never rewrite published
+- Commit finished, verified work on `main`. Push `main` to my GitHub only
+  after checking what would leave the machine (no console addresses, no
+  firmware-derived detail, no ignored files), and never rewrite published
   history.
 - Keep the run logs factual: what was run, what it returned, what it proves.
 - Do not add a non-PS5 toolchain flag to a script in `tools/`.

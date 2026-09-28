@@ -2,8 +2,8 @@
 
 Append-only, like the M5 phase logs: dated entries, never rewritten. The plan
 is [VULKAN_1_4_PLAN.md](VULKAN_1_4_PLAN.md) (route B); the CTS set-up is in
-[CTS.md](CTS.md). The driver is my Mesa fork `PS5_Mesa` (branch `ps5-port`,
-RADV with a PS5 winsys), the CTS my fork `PS5_VK-GL-CTS` (branch `ps5-port`),
+[CTS.md](CTS.md). The driver is my Mesa fork `PS5_Mesa` (branch `main`,
+called `ps5-port` in the entries up to 2026-09-28; RADV with a PS5 winsys), the CTS my fork `PS5_VK-GL-CTS` (branch `ps5-port`),
 and the platform pieces are in the payload SDK fork's `platform/`.
 
 ## 2026-09-26 — the CTS runs on the console
@@ -883,3 +883,19 @@ present 2.44 s. Dolphin with its cache filled (87% and 99% for its first two
 windows) now matches ps5vk's run from an empty cache (86% and 99%); what is
 left is RADV's compile of its ubershaders from an empty cache (83% and 92%),
 which on the host profile is Mesa's own NIR optimisation loop.
+
+## 2026-09-28 — the second full CTS run; the fork on main
+
+With every item in [CTS_GAPS.md](CTS_GAPS.md) closed by a targeted run, the
+second full run of the pinned CTS, full-1, started at 02:31 on the debug
+archive of ecf916d (every mustpass group main-1 ran, 2,919,757 cases in
+batches of 20,000). At 560,000 cases: 228,553 pass, 331,439 not supported,
+8 quality warnings, no failure, no crash and no lost device. It is a user
+service on the host now (`systemd-run --user`), so the run outlives the
+session that started it: restarts of the desktop app ended the earlier
+orchestrators, and each time the run resumed from its results.
+
+The Mesa fork's work is on its `main` branch: `ps5-port` and the feature
+branches were merged into it, and `tools/build-radv.sh` exports the pinned
+revision from there. vkQuake and PS5 RetroArch (v0.5.0-alpha.5) ship on the
+release archive of cedb774.

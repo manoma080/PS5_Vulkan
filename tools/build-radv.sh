@@ -3,7 +3,7 @@
 # Copyright (C) 2026 Mihawk-99
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# The RADV port lives in my Mesa fork, ../PS5_Mesa (branch ps5-port: the Mesa
+# The RADV port lives in my Mesa fork, ../PS5_Mesa (branch main: the Mesa
 # 26.2.0 release with a PS5 winsys, -Dradv-winsys=ps5). The pinned revision is
 # exported with git archive, so a build never depends on the fork's working
 # tree, and built with meson for the console (tooling/radv/ps5-cross.ini):
