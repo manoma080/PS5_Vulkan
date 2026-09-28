@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "radv_smoke_shaders.h"
 
@@ -38,6 +39,10 @@ int sceKernelDebugOutText(int channel, const char *text);
 int ps5_klog_capture_stderr(const char *prefix);
 #else
 #define RESULTS_PATH "radv-smoke.txt"
+#endif
+
+#ifndef MIN2
+#define MIN2(a, b) ((a) < (b) ? (a) : (b))
 #endif
 
 static FILE *results;
@@ -819,6 +824,131 @@ test_triangle(struct context *c)
    vkDestroyShaderModule(c->device, vert, NULL);
    vkDestroyShaderModule(c->device, frag, NULL);
    buffer_destroy(c, &readback);
+}
+
+/* The coherence probe (docs/VULKAN_1_4_PLAN.md, S7) on the memory the driver
+ * maps for the host, with no flush and no invalidate between the CPU and the
+ * GPU, which is what HOST_COHERENT promises. Each part keeps the other
+ * direction out of its way:
+ * - the CPU writes a source the GPU then copies at once, into a region the CPU
+ *   has never touched, so its lines are still in the CPU's caches and the
+ *   destination's are not;
+ * - the GPU fills a region the CPU has just read, so the CPU's caches hold the
+ *   old words;
+ * and the CPU's reads and writes of mapped memory are timed against its own
+ * heap's, which says whether the mapping is cached. */
+static uint64_t
+now_ns(void)
+{
+   struct timespec t;
+   clock_gettime(CLOCK_MONOTONIC, &t);
+   return (uint64_t)t.tv_sec * 1000000000u + (uint64_t)t.tv_nsec;
+}
+
+static uint64_t coherence_sink;
+
+static uint64_t
+read_ns(const void *memory, size_t bytes)
+{
+   const uint64_t *words = memory;
+   uint64_t sum = 0;
+   const uint64_t start = now_ns();
+   for (size_t i = 0; i < bytes / 8; i++)
+      sum += words[i];
+   const uint64_t end = now_ns();
+   coherence_sink += sum;
+   return end - start;
+}
+
+static uint64_t
+write_ns(void *memory, size_t bytes)
+{
+   uint64_t *words = memory;
+   const uint64_t start = now_ns();
+   for (size_t i = 0; i < bytes / 8; i++)
+      words[i] = i;
+   return now_ns() - start;
+}
+
+static void
+test_coherence(struct context *c)
+{
+   enum { ROUNDS = 64, PIECE = 4096, STRIDE = 65536 };
+   struct buffer src, dst;
+   if (!buffer_create(c, PIECE, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, &src) ||
+       !buffer_create(c, (VkDeviceSize)ROUNDS * STRIDE, VK_BUFFER_USAGE_TRANSFER_DST_BIT, &dst)) {
+      check(false, "coherence: buffers");
+      return;
+   }
+
+   /* The CPU's writes, read by the GPU. */
+   unsigned stale_rounds = 0, stale_words = 0;
+   bool ok = true;
+   for (uint32_t round = 0; ok && round < ROUNDS; round++) {
+      uint32_t *const in = src.map;
+      for (uint32_t i = 0; i < PIECE / 4; i++)
+         in[i] = (round + 1) * 0x9e3779b9u ^ i;
+      ok = begin(c);
+      const VkBufferCopy region = {.srcOffset = 0, .dstOffset = (VkDeviceSize)round * STRIDE, .size = PIECE};
+      vkCmdCopyBuffer(c->cmd, src.buffer, dst.buffer, 1, &region);
+      ok = ok && submit_and_wait(c, "coherence");
+      const uint32_t *const out = (const uint32_t *)((const uint8_t *)dst.map + (size_t)round * STRIDE);
+      unsigned wrong = 0;
+      for (uint32_t i = 0; ok && i < PIECE / 4; i++)
+         wrong += out[i] != ((round + 1) * 0x9e3779b9u ^ i);
+      stale_rounds += wrong != 0;
+      stale_words += wrong;
+   }
+   if (stale_rounds)
+      report("coherence: %u of %u rounds read stale source words (%u words)", stale_rounds, ROUNDS, stale_words);
+   check(ok && stale_rounds == 0, "coherence: the GPU reads what the CPU just wrote, without a flush");
+
+   /* The GPU's writes over lines the CPU holds. */
+   stale_rounds = 0;
+   stale_words = 0;
+   for (uint32_t round = 0; ok && round < ROUNDS; round++) {
+      const uint32_t *const words = (const uint32_t *)((const uint8_t *)dst.map + (size_t)round * STRIDE);
+      uint32_t held = 0;
+      for (uint32_t i = 0; i < PIECE / 4; i++)
+         held += words[i];
+      coherence_sink += held;
+      ok = begin(c);
+      vkCmdFillBuffer(c->cmd, dst.buffer, (VkDeviceSize)round * STRIDE, PIECE, 0xa5a50000u | round);
+      ok = ok && submit_and_wait(c, "coherence");
+      unsigned wrong = 0;
+      for (uint32_t i = 0; ok && i < PIECE / 4; i++)
+         wrong += words[i] != (0xa5a50000u | round);
+      stale_rounds += wrong != 0;
+      stale_words += wrong;
+   }
+   if (stale_rounds)
+      report("coherence: %u of %u rounds read stale words the CPU held (%u words)", stale_rounds, ROUNDS,
+             stale_words);
+   check(ok && stale_rounds == 0, "coherence: the CPU reads what the GPU wrote over lines it held, without an "
+                                  "invalidate");
+   buffer_destroy(c, &src);
+   buffer_destroy(c, &dst);
+
+   /* Cached or not: 16 MiB read and written, mapped and on the heap, the best
+    * of three each. */
+   enum { TIMED = 16 << 20 };
+   struct buffer timed;
+   void *const heap = malloc(TIMED);
+   if (heap && buffer_create(c, TIMED, VK_BUFFER_USAGE_TRANSFER_DST_BIT, &timed)) {
+      uint64_t mapped_read = UINT64_MAX, heap_read = UINT64_MAX, mapped_write = UINT64_MAX,
+               heap_write = UINT64_MAX;
+      for (int i = 0; i < 3; i++) {
+         mapped_write = MIN2(mapped_write, write_ns(timed.map, TIMED));
+         heap_write = MIN2(heap_write, write_ns(heap, TIMED));
+         mapped_read = MIN2(mapped_read, read_ns(timed.map, TIMED));
+         heap_read = MIN2(heap_read, read_ns(heap, TIMED));
+      }
+      report("coherence: 16 MiB read in %.2f ms mapped, %.2f ms on the heap; written in %.2f ms mapped, %.2f ms "
+             "on the heap",
+             mapped_read / 1e6, heap_read / 1e6, mapped_write / 1e6, heap_write / 1e6);
+      buffer_destroy(c, &timed);
+   }
+   free(heap);
 }
 
 /* The triangle of test_triangle, shaded by a fragment shader whose private
@@ -1842,6 +1972,7 @@ main(void)
       if (!getenv("RADV_SMOKE_SKIP_GEOMETRY"))
          test_geometry(&c);
       test_scratch(&c);
+      test_coherence(&c);
       test_primitive_id(&c);
       if (c.barycentric) {
          test_barycentric(&c);
