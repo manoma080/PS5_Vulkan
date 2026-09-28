@@ -26,7 +26,7 @@ set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 mesa_fork="${PS5_MESA_FORK:-$root/../PS5_Mesa}"
-mesa_revision=ecf916d819c4f02a558ef370093e31e2ffbdc40e
+mesa_revision=884f9540acb71ca4b1c5a55f5120bbcc900da960
 variant=${1:-debug}
 sdk="$root/.deps/native/ps5-payload-sdk"
 source_tree="$root/.deps/work/radv-src"
@@ -60,12 +60,14 @@ git -C "$mesa_fork" cat-file -e "$mesa_revision^{commit}" 2>/dev/null ||
 if [[ ! -f $source_tree/.revision || $(<"$source_tree/.revision") != "$mesa_revision" ]]; then
     # The new revision's files replace the old ones by content: a file that
     # did not change keeps its time, so the build below recompiles only what
-    # the revision touched.
+    # the revision touched. The subprojects meson fetched (zlib, by the hash
+    # its wrap pins) stay.
     staging="$source_tree.new"
     rm -rf "$staging"
     mkdir -p "$staging" "$source_tree"
     git -C "$mesa_fork" archive "$mesa_revision" | tar -x -C "$staging"
-    rsync -rlp --checksum --delete --exclude=/.revision "$staging/" "$source_tree/"
+    rsync -rlp --checksum --delete --exclude=/.revision --exclude=/subprojects/packagecache/ \
+        --exclude=/subprojects/zlib-*/ "$staging/" "$source_tree/"
     rm -rf "$staging"
     printf '%s\n' "$mesa_revision" > "$source_tree/.revision"
 fi
@@ -92,22 +94,28 @@ export PATH="$clc_bin:$PATH"
 
 constants="$root/.deps/work/radv-cross-constants.ini"
 printf "[constants]\nsdk = '%s'\n" "$sdk" > "$constants"
-if [[ ! -f $build/build.ninja ]]; then
-    "$meson" setup "$build" "$source_tree" \
+# The shader cache compresses with zlib, from its subproject: the SDK has none
+# a cross build can find.
+options=(-Dvulkan-drivers=amd -Dgallium-drivers= -Dplatforms= -Dradv-winsys=ps5
+    -Dllvm=disabled -Damd-use-llvm=false -Dvideo-codecs=
+    -Dbuildtype=debugoptimized -Db_ndebug="$ndebug"
+    -Dglx=disabled -Degl=disabled -Dgbm=disabled -Dopengl=false -Dgles1=disabled -Dgles2=disabled
+    -Dvalgrind=disabled -Dlibunwind=disabled -Dzstd=disabled -Dzlib=enabled --force-fallback-for=zlib
+    -Dexpat=disabled -Dxmlconfig=disabled -Dshader-cache=enabled -Dbuild-tests=false -Dvulkan-layers= -Dtools=
+    -Dmesa-clc=system)
+if [[ ! -f $build/build.ninja || $(cat "$build/.radv-options" 2>/dev/null) != "${options[*]}" ]]; then
+    # A tree configured with other options starts again from them.
+    wipe=()
+    [[ -f $build/build.ninja ]] && wipe=(--wipe)
+    "$meson" setup "${wipe[@]}" "$build" "$source_tree" \
         --cross-file "$constants" --cross-file "$root/tooling/radv/ps5-cross.ini" \
-        -Dvulkan-drivers=amd -Dgallium-drivers= -Dplatforms= -Dradv-winsys=ps5 \
-        -Dllvm=disabled -Damd-use-llvm=false -Dvideo-codecs= \
-        -Dbuildtype=debugoptimized -Db_ndebug="$ndebug" \
-        -Dglx=disabled -Degl=disabled -Dgbm=disabled -Dopengl=false -Dgles1=disabled -Dgles2=disabled \
-        -Dvalgrind=disabled -Dlibunwind=disabled -Dzstd=disabled -Dzlib=disabled -Dexpat=disabled \
-        -Dxmlconfig=disabled -Dshader-cache=disabled -Dbuild-tests=false -Dvulkan-layers= -Dtools= \
-        -Dmesa-clc=system -Dradv-build-id="$mesa_revision" > "$build.setup.log" 2>&1 ||
+        "${options[@]}" -Dradv-build-id="$mesa_revision" > "$build.setup.log" 2>&1 ||
         { tail -20 "$build.setup.log" >&2; exit 1; }
-elif [[ $(cat "$build/.radv-build-id" 2>/dev/null) != "$mesa_revision" || ! -f $build/.radv-clc-system ]]; then
-    "$meson" configure "$build" -Dmesa-clc=system -Dradv-build-id="$mesa_revision" > "$build.setup.log" 2>&1 ||
+elif [[ $(cat "$build/.radv-build-id" 2>/dev/null) != "$mesa_revision" ]]; then
+    "$meson" configure "$build" -Dradv-build-id="$mesa_revision" > "$build.setup.log" 2>&1 ||
         { tail -20 "$build.setup.log" >&2; exit 1; }
 fi
-: > "$build/.radv-clc-system"
+printf '%s\n' "${options[*]}" > "$build/.radv-options"
 printf '%s\n' "$mesa_revision" > "$build/.radv-build-id"
 "$ninja" -C "$build" src/amd/vulkan/libvulkan_radeon.a > "$build.log" 2>&1 ||
     { grep -E "error|FAILED" "$build.log" | head -20 >&2; exit 1; }

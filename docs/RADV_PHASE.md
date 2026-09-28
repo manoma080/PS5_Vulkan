@@ -771,3 +771,35 @@ GPU either. What upstream reports and the port does not is now all hardware
 exported-function limits (device-generated commands, performance queries,
 shader resource residency) and Linux (DRM, dma-buf, file descriptors,
 display control).
+
+## 2026-09-28 — RADV's shader cache on the console
+
+RADV keeps its compiled pipelines on the console, as ps5vk keeps its
+shaders: Mesa's disk cache in its database form, in
+`/app0/radv-shader-cache` unless a title sets MESA_SHADER_CACHE_DIR or
+MESA_DISK_CACHE_DATABASE itself (ps5-port 7261b06, 884f954). The archives
+take zlib from Mesa's subproject whole, since a title links one archive, and
+the platform layer gained getpwuid_r and posix_fallocate, which the cache
+calls (PS5_PayloadSDK 2823efe). A build's cache entries are keyed by the
+pinned revision (`-Dradv-build-id`), so a new pin never reads an old
+build's binaries.
+
+Everything the cache makes stays reachable by the console's FTP service:
+folders 0777 and files 0666, whatever the umask, including parts an earlier
+build made. The first working cache cost vkQuake 11 s of its launch from
+an empty cache; profiling it on the console found two causes:
+
+- The database opens its two files at every access, and the mode was set
+  at every open. A change of mode is a metadata write of about 0.7 ms on
+  the console (docs/HARDWARE_FINDINGS.md): 10.4 s of the 10.7 s spent
+  locking. The mode now changes only when fstat shows it is wrong.
+- A lookup that missed made every part (50 per cache, each a folder and two
+  files, about 18 ms to make) and then opened all of them at each miss. A
+  lookup now skips parts that are not there, and parts are made by writes.
+  Mesa's 29 cache tests pass on the host with the change.
+
+vkQuake, release archive at 884f954: first present 3.83 s after start from an
+empty cache (pipelines 0.96 s, against 0.62 s with no cache at all), 2.71 s
+with it filled (pipelines 0.14 s), and the demo loop at 119.88 fps. The
+installed title is that build. Shipping a harvested cache with a title, as
+ps5vk does, is open, as is the device and swapchain start-up (about 2.5 s).

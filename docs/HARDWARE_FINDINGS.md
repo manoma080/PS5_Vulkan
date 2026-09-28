@@ -3752,3 +3752,20 @@ on the host the same case takes 11.6 s that way and 2.3 s in a release build,
 and on the console the release archive passes all 8 cases (sparse-db-32-rel-1).
 The winsys itself (buffers, sparse binds, submissions, waits) took about
 100 ms of the case.
+
+## 2026-09-28 — a title's file system: slow mode changes, and access() refused (platform)
+
+Measured from RADV's shader cache in vkQuake, from time stamps around each call:
+
+- A change of mode (fchmod) on a file in `/app0` costs about 0.7 ms, a
+  metadata write: 14,500 of them took 10.4 s. An open of an existing file
+  costs about 65 µs, and flock, taking or releasing, about 2 µs.
+- Making a cache part (a folder and two new files, with their headers)
+  took about 18 ms.
+- access() fails with EPERM for every path a title asks about: `/app0`,
+  files and folders that exist in it, and paths that do not exist. stat()
+  answers as usual, ENOENT included. Existence has to be asked of stat().
+- The title runs as user 1 and group 1, and its files report user 0 and
+  group 0, yet the title opens for writing a file of mode 0644 it made
+  earlier: the mode bits do not predict what a title may do.
+- `/data`, where FTP sees the title's folder, does not exist for the title.

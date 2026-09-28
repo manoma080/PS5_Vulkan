@@ -87,8 +87,11 @@ What stands on the console (2026-09-28):
 - **vkQuake ships on RADV.** Since 2026-09-28 the vkQuake title builds against
   the release archive by default and runs its demo loop at 119.88 fps, one
   vblank a frame, in the display's 120 Hz mode (PS5_vkQuake
-  `evidence/radv-r2-main`). Its start-up is still slower than ps5vk's: first
-  present 3.2 s after start, without a shader cache.
+  `evidence/radv-r2-main`). Since the same day RADV keeps its compiled
+  pipelines in an on-disk cache in the title's folder: first present 3.8 s
+  after start from an empty cache, 2.7 s with it filled, of which the
+  pipelines take 0.14 s. The rest, about 2.5 s of device and swapchain
+  start-up against ps5vk's 0.55–0.77 s to a first frame, is still open.
 - **Mesh and task shaders** are reported since 2026-09-28, though the GPU has
   neither per-primitive parameters nor the CP's task and mesh dispatch
   packets: mesh workgroups go out in parts that share one run's outputs, and

@@ -28,6 +28,10 @@ environment.
   `downloadDataSize` is positive in `param.json`.
 - Applications should use the sandbox path rather than relying on its host
   backing-file location.
+- access() fails with EPERM for every path in a title, existing or not; use
+  stat() to ask whether a path exists. Changing a file's mode is a metadata
+  write of about 0.7 ms, so change it only when it is wrong
+  ([HARDWARE_FINDINGS.md](HARDWARE_FINDINGS.md)).
 - Availability of `/temp0` and other mounts depends on the loader and title
   environment.
 - SaveData setup is not included. Use `/download0` for ordinary configuration
