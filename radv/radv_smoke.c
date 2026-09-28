@@ -87,6 +87,7 @@ check(bool ok, const char *what)
    X(GetPhysicalDeviceProperties2)                                                                 \
    X(GetPhysicalDeviceQueueFamilyProperties)                                                       \
    X(GetPhysicalDeviceMemoryProperties)                                                            \
+   X(GetPhysicalDeviceFeatures)                                                                    \
    X(CreateDevice)                                                                                 \
    X(EnumerateDeviceExtensionProperties)                                                           \
    X(GetDeviceProcAddr)
@@ -206,6 +207,11 @@ struct context {
    /* VK_KHR_acceleration_structure is reported and enabled, with buffer
     * device addresses. */
    bool acceleration_structure;
+   /* VK_KHR_display is reported and enabled with VK_KHR_surface, and
+    * VK_KHR_swapchain with them. */
+   bool display;
+   /* VK_EXT_descriptor_buffer is reported and enabled (test_sparse_timing). */
+   bool descriptor_buffer;
    /* How render_readback_with records its draw (test_geometry's draw checks):
     * directly by default. Indices are 16-bit. */
    struct {
@@ -1783,6 +1789,368 @@ test_acceleration_structure(struct context *c)
    check(build_bottom_level(c, two, 2), "acceleration structure: a GPU-built bottom level holds its two triangles");
 }
 
+/* --------------------------------------------------------- sparse timing */
+
+/* How the cost of sparse buffers grows with their number, which made the CTS's
+ * 32-buffer sparse descriptor buffer cases outlast its watchdog (sparse-db-
+ * scale-1 in PS5_Vulkan: 1, 8 and 16 buffers took about 1, 3 and 10 s). Makes
+ * 48 sparse-binding buffers of 64 KiB and binds each to memory of its own,
+ * as those cases do, timing the creation, the bind and its fence wait; one
+ * line per eighth buffer. */
+static bool
+supported_sparse_binding(struct context *c)
+{
+   VkPhysicalDeviceFeatures supported;
+   vkGetPhysicalDeviceFeatures(c->physical, &supported);
+   return supported.sparseBinding;
+}
+
+static void
+test_sparse_timing(struct context *c)
+{
+   PFN_vkQueueBindSparse bind_sparse = (PFN_vkQueueBindSparse)vkGetDeviceProcAddr(c->device, "vkQueueBindSparse");
+   if (!bind_sparse) {
+      check(false, "sparse timing: vkQueueBindSparse");
+      return;
+   }
+   enum { COUNT = 48 };
+   for (unsigned kind = 0; kind < (c->descriptor_buffer ? 2u : 1u); kind++) {
+   const char *const kind_name = kind ? "descriptor buffers" : "storage buffers";
+   VkBuffer buffers[COUNT] = {0};
+   VkDeviceMemory memories[COUNT] = {0};
+   uint64_t create_ns = 0, bind_ns = 0;
+   bool ok = true;
+   for (unsigned i = 0; i < COUNT && ok; i++) {
+      const VkBufferCreateInfo info = {
+         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+         .flags = VK_BUFFER_CREATE_SPARSE_BINDING_BIT,
+         .size = 64 * 1024,
+         .usage = kind ? VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+                       : VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+         .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+      };
+      uint64_t t0 = now_ns();
+      ok &= vkCreateBuffer(c->device, &info, NULL, &buffers[i]) == VK_SUCCESS;
+      const uint64_t t1 = now_ns();
+      if (!ok)
+         break;
+      VkMemoryRequirements req;
+      vkGetBufferMemoryRequirements(c->device, buffers[i], &req);
+      const VkMemoryAllocateInfo alloc = {
+         .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+         .allocationSize = req.size,
+         .memoryTypeIndex = memory_type(c, req.memoryTypeBits, 0),
+      };
+      ok &= vkAllocateMemory(c->device, &alloc, NULL, &memories[i]) == VK_SUCCESS;
+      if (!ok)
+         break;
+      const VkSparseMemoryBind bind = {.size = req.size, .memory = memories[i]};
+      const VkSparseBufferMemoryBindInfo buffer_bind = {.buffer = buffers[i], .bindCount = 1, .pBinds = &bind};
+      const VkBindSparseInfo bind_info = {
+         .sType = VK_STRUCTURE_TYPE_BIND_SPARSE_INFO,
+         .bufferBindCount = 1,
+         .pBufferBinds = &buffer_bind,
+      };
+      const uint64_t t2 = now_ns();
+      vkResetFences(c->device, 1, &c->fence);
+      ok &= bind_sparse(c->queue, 1, &bind_info, c->fence) == VK_SUCCESS;
+      ok &= vkWaitForFences(c->device, 1, &c->fence, VK_TRUE, UINT64_MAX) == VK_SUCCESS;
+      const uint64_t t3 = now_ns();
+      create_ns += t1 - t0;
+      bind_ns += t3 - t2;
+      if ((i + 1) % 8 == 0)
+         report("sparse timing, %s: buffer %u: creation %.3f ms, bind %.3f ms; %u so far: %.3f ms, %.3f ms",
+                kind_name, i + 1, (t1 - t0) / 1e6, (t3 - t2) / 1e6, i + 1, create_ns / 1e6, bind_ns / 1e6);
+   }
+   check(ok, kind ? "sparse timing: 48 sparse descriptor buffers created and bound"
+                  : "sparse timing: 48 sparse buffers created and bound");
+   const uint64_t t0 = now_ns();
+   for (unsigned i = 0; i < COUNT; i++) {
+      if (buffers[i])
+         vkDestroyBuffer(c->device, buffers[i], NULL);
+      if (memories[i])
+         vkFreeMemory(c->device, memories[i], NULL);
+   }
+   report("sparse timing, %s: destroying them took %.3f ms", kind_name, (now_ns() - t0) / 1e6);
+   }
+}
+
+/* ----------------------------------------------------------------- display */
+
+/* VK_KHR_display on VideoOut (Mesa's wsi_common_videoout.c): the display and
+ * its modes, a plane surface, and a swapchain presenting 60 frames, each
+ * cleared to a gray of its own. FIFO paces presents to flips: the last 50 take
+ * 50 refresh periods within 15%. The last frame is read back before its
+ * present. A swapchain made with the first as oldSwapchain presents 5 more,
+ * and the retired one's acquire reports it out of date. */
+#define DISPLAY_INSTANCE_COMMANDS(X)                                                               \
+   X(GetPhysicalDeviceDisplayPropertiesKHR)                                                        \
+   X(GetDisplayModePropertiesKHR)                                                                  \
+   X(CreateDisplayPlaneSurfaceKHR)                                                                 \
+   X(DestroySurfaceKHR)                                                                            \
+   X(GetPhysicalDeviceSurfaceSupportKHR)                                                           \
+   X(GetPhysicalDeviceSurfaceCapabilitiesKHR)                                                      \
+   X(GetPhysicalDeviceSurfaceFormatsKHR)
+
+#define DISPLAY_DEVICE_COMMANDS(X)                                                                 \
+   X(CreateSwapchainKHR)                                                                           \
+   X(DestroySwapchainKHR)                                                                          \
+   X(GetSwapchainImagesKHR)                                                                        \
+   X(AcquireNextImageKHR)                                                                          \
+   X(QueuePresentKHR)                                                                              \
+   X(CreateSemaphore)                                                                              \
+   X(DestroySemaphore)                                                                             \
+   X(CmdClearColorImage)
+
+DISPLAY_INSTANCE_COMMANDS(DECLARE)
+DISPLAY_DEVICE_COMMANDS(DECLARE)
+
+static void
+display_image_barrier(struct context *c, VkImage image, VkImageLayout from, VkImageLayout to,
+                      VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access, VkPipelineStageFlags2 dst_stage,
+                      VkAccessFlags2 dst_access)
+{
+   const VkImageMemoryBarrier2 barrier = {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+      .srcStageMask = src_stage,
+      .srcAccessMask = src_access,
+      .dstStageMask = dst_stage,
+      .dstAccessMask = dst_access,
+      .oldLayout = from,
+      .newLayout = to,
+      .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .image = image,
+      .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+   };
+   const VkDependencyInfo dependency = {
+      .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+      .imageMemoryBarrierCount = 1,
+      .pImageMemoryBarriers = &barrier,
+   };
+   vkCmdPipelineBarrier2(c->cmd, &dependency);
+}
+
+/* One frame: acquire, clear to gray, read back when asked, present. */
+static VkResult
+display_frame(struct context *c, VkSwapchainKHR swapchain, const VkImage *images, VkSemaphore acquired,
+              VkSemaphore rendered, float gray, struct buffer *readback)
+{
+   uint32_t index;
+   VkResult result = vkAcquireNextImageKHR(c->device, swapchain, UINT64_MAX, acquired, VK_NULL_HANDLE, &index);
+   if (result != VK_SUCCESS)
+      return result;
+   const VkCommandBufferBeginInfo begin_info = {
+      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+      .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+   };
+   vkResetCommandBuffer(c->cmd, 0);
+   vkBeginCommandBuffer(c->cmd, &begin_info);
+   display_image_barrier(c, images[index], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                         VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0, VK_PIPELINE_STAGE_2_CLEAR_BIT,
+                         VK_ACCESS_2_TRANSFER_WRITE_BIT);
+   const VkClearColorValue color = {.float32 = {gray, gray, gray, 1.0f}};
+   const VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+   vkCmdClearColorImage(c->cmd, images[index], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &color, 1, &range);
+   VkImageLayout layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+   if (readback) {
+      display_image_barrier(c, images[index], layout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                            VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                            VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+      layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+      /* Two pixels: the first tile's and the last one's. */
+      const VkBufferImageCopy copies[2] = {
+         {.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}, .imageExtent = {1, 1, 1}},
+         {.bufferOffset = 4,
+          .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+          .imageOffset = {3839, 2159, 0},
+          .imageExtent = {1, 1, 1}},
+      };
+      vkCmdCopyImageToBuffer(c->cmd, images[index], layout, readback->buffer, 2, copies);
+   }
+   display_image_barrier(c, images[index], layout, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                         VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0);
+   vkEndCommandBuffer(c->cmd);
+
+   const VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+   const VkSubmitInfo submit = {
+      .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+      .waitSemaphoreCount = 1,
+      .pWaitSemaphores = &acquired,
+      .pWaitDstStageMask = &wait_stage,
+      .commandBufferCount = 1,
+      .pCommandBuffers = &c->cmd,
+      .signalSemaphoreCount = 1,
+      .pSignalSemaphores = &rendered,
+   };
+   vkResetFences(c->device, 1, &c->fence);
+   result = vkQueueSubmit(c->queue, 1, &submit, c->fence);
+   if (result != VK_SUCCESS)
+      return result;
+   const VkPresentInfoKHR present = {
+      .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+      .waitSemaphoreCount = 1,
+      .pWaitSemaphores = &rendered,
+      .swapchainCount = 1,
+      .pSwapchains = &swapchain,
+      .pImageIndices = &index,
+   };
+   result = vkQueuePresentKHR(c->queue, &present);
+   /* The one command buffer is recorded again next frame. */
+   vkWaitForFences(c->device, 1, &c->fence, VK_TRUE, UINT64_MAX);
+   return result;
+}
+
+static VkSwapchainKHR
+display_swapchain(struct context *c, VkSurfaceKHR surface, VkSwapchainKHR old, VkImage *images, uint32_t *count)
+{
+   const VkSwapchainCreateInfoKHR info = {
+      .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+      .surface = surface,
+      .minImageCount = 3,
+      .imageFormat = VK_FORMAT_B8G8R8A8_UNORM,
+      .imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
+      .imageExtent = {3840, 2160},
+      .imageArrayLayers = 1,
+      .imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+      .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
+      .preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
+      .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+      .presentMode = VK_PRESENT_MODE_FIFO_KHR,
+      .clipped = VK_TRUE,
+      .oldSwapchain = old,
+   };
+   VkSwapchainKHR swapchain = VK_NULL_HANDLE;
+   VkResult result = vkCreateSwapchainKHR(c->device, &info, NULL, &swapchain);
+   check(result == VK_SUCCESS, old ? "display: a swapchain replacing the first" : "display: vkCreateSwapchainKHR");
+   if (result != VK_SUCCESS)
+      return VK_NULL_HANDLE;
+   *count = 8;
+   result = vkGetSwapchainImagesKHR(c->device, swapchain, count, images);
+   check(result == VK_SUCCESS && *count >= 3 && *count <= 5, "display: 3 to 5 swapchain images");
+   return swapchain;
+}
+
+static void
+test_display(struct context *c)
+{
+   bool ok = true;
+#define LOAD_I(name)                                                                               \
+   vk##name = (PFN_vk##name)vk_icdGetInstanceProcAddr(c->instance, "vk" #name);                    \
+   ok &= vk##name != NULL;
+#define LOAD_D(name)                                                                               \
+   vk##name = (PFN_vk##name)vkGetDeviceProcAddr(c->device, "vk" #name);                            \
+   ok &= vk##name != NULL;
+   DISPLAY_INSTANCE_COMMANDS(LOAD_I)
+   DISPLAY_DEVICE_COMMANDS(LOAD_D)
+#undef LOAD_I
+#undef LOAD_D
+   check(ok, "display: the VK_KHR_display and VK_KHR_swapchain commands");
+   if (!ok)
+      return;
+
+   VkDisplayPropertiesKHR display;
+   uint32_t count = 1;
+   VkResult result = vkGetPhysicalDeviceDisplayPropertiesKHR(c->physical, &count, &display);
+   check(result == VK_SUCCESS && count == 1 && display.physicalResolution.width == 3840 &&
+            display.physicalResolution.height == 2160,
+         "display: one 3840x2160 display");
+   if (count != 1)
+      return;
+   VkDisplayModePropertiesKHR modes[2];
+   count = 2;
+   result = vkGetDisplayModePropertiesKHR(c->physical, display.display, &count, modes);
+   check(result == VK_SUCCESS && count >= 1, "display: its modes");
+   if (count == 0)
+      return;
+   report("display: %s, %u mode(s), the first at %.3f Hz", display.displayName, count,
+          modes[0].parameters.refreshRate / 1000.0);
+
+   const VkDisplaySurfaceCreateInfoKHR surface_info = {
+      .sType = VK_STRUCTURE_TYPE_DISPLAY_SURFACE_CREATE_INFO_KHR,
+      .displayMode = modes[0].displayMode,
+      .transform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
+      .alphaMode = VK_DISPLAY_PLANE_ALPHA_OPAQUE_BIT_KHR,
+      .imageExtent = {3840, 2160},
+   };
+   VkSurfaceKHR surface;
+   result = vkCreateDisplayPlaneSurfaceKHR(c->instance, &surface_info, NULL, &surface);
+   check(result == VK_SUCCESS, "display: vkCreateDisplayPlaneSurfaceKHR");
+   if (result != VK_SUCCESS)
+      return;
+   VkBool32 supported = VK_FALSE;
+   vkGetPhysicalDeviceSurfaceSupportKHR(c->physical, c->family, surface, &supported);
+   VkSurfaceCapabilitiesKHR caps;
+   vkGetPhysicalDeviceSurfaceCapabilitiesKHR(c->physical, surface, &caps);
+   check(supported && caps.currentExtent.width == 3840 && caps.currentExtent.height == 2160 &&
+            caps.minImageCount <= 3 && caps.maxImageCount >= 3,
+         "display: the surface's support and capabilities");
+
+   struct buffer readback;
+   VkSemaphore acquired = VK_NULL_HANDLE, rendered = VK_NULL_HANDLE;
+   const VkSemaphoreCreateInfo semaphore_info = {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+   if (!buffer_create(c, 64, VK_BUFFER_USAGE_TRANSFER_DST_BIT, &readback) ||
+       vkCreateSemaphore(c->device, &semaphore_info, NULL, &acquired) != VK_SUCCESS ||
+       vkCreateSemaphore(c->device, &semaphore_info, NULL, &rendered) != VK_SUCCESS) {
+      check(false, "display: its semaphores and readback buffer");
+      vkDestroySurfaceKHR(c->instance, surface, NULL);
+      return;
+   }
+
+   VkImage images[8];
+   VkSwapchainKHR swapchain = display_swapchain(c, surface, VK_NULL_HANDLE, images, &count);
+   if (swapchain) {
+      const unsigned frames = 60, paced = 50;
+      uint64_t start = 0;
+      unsigned presented = 0;
+      for (unsigned frame = 0; frame < frames; frame++) {
+         if (frame == frames - paced)
+            start = now_ns();
+         const float gray = 0.10f + 0.10f * (float)(frame % 16) / 16.0f;
+         result = display_frame(c, swapchain, images, acquired, rendered, gray,
+                                frame == frames - 1 ? &readback : NULL);
+         if (result != VK_SUCCESS)
+            break;
+         presented++;
+      }
+      const double seconds = (now_ns() - start) / 1e9;
+      const double expected = paced * 1000.0 / modes[0].parameters.refreshRate;
+      check(presented == frames, "display: 60 frames acquired, cleared and presented");
+      report("display: the last %u frames took %.3f s, %.3f s at the mode's refresh", paced, seconds, expected);
+      check(presented == frames && seconds > expected * 0.85 && seconds < expected * 1.15,
+            "display: FIFO presents paced by the display's flips");
+      /* B8G8R8A8: 0.10 + 0.10 * 11/16 of 255, rounded. */
+      const uint8_t *pixels = readback.map;
+      const uint8_t want = (uint8_t)((0.10f + 0.10f * 11.0f / 16.0f) * 255.0f + 0.5f);
+      check(presented == frames && pixels[0] == want && pixels[1] == want && pixels[2] == want && pixels[3] == 255 &&
+               pixels[4] == want && pixels[7] == 255,
+            "display: the last frame's first and last pixels read back");
+
+      uint32_t new_count = 0;
+      VkImage new_images[8];
+      VkSwapchainKHR replacement = display_swapchain(c, surface, swapchain, new_images, &new_count);
+      if (replacement) {
+         uint32_t index;
+         result = vkAcquireNextImageKHR(c->device, swapchain, 0, VK_NULL_HANDLE, c->fence, &index);
+         check(result == VK_ERROR_OUT_OF_DATE_KHR, "display: the retired swapchain's acquire is out of date");
+         vkDestroySwapchainKHR(c->device, swapchain, NULL);
+         swapchain = VK_NULL_HANDLE;
+         unsigned more = 0;
+         for (unsigned frame = 0; frame < 5; frame++)
+            more += display_frame(c, replacement, new_images, acquired, rendered, 0.0f, NULL) == VK_SUCCESS;
+         check(more == 5, "display: 5 frames through the replacement");
+         vkDeviceWaitIdle(c->device);
+         vkDestroySwapchainKHR(c->device, replacement, NULL);
+      }
+      if (swapchain)
+         vkDestroySwapchainKHR(c->device, swapchain, NULL);
+   }
+   vkDestroySemaphore(c->device, acquired, NULL);
+   vkDestroySemaphore(c->device, rendered, NULL);
+   buffer_destroy(c, &readback);
+   vkDestroySurfaceKHR(c->instance, surface, NULL);
+}
+
 /* -------------------------------------------------------------------- main */
 
 static bool
@@ -1798,9 +2166,24 @@ context_create(struct context *c)
       .pApplicationName = "radv-smoke",
       .apiVersion = VK_API_VERSION_1_4,
    };
+   /* VK_KHR_display where it is reported, for test_display. */
+   const PFN_vkEnumerateInstanceExtensionProperties enumerate_instance_extensions =
+      (PFN_vkEnumerateInstanceExtensionProperties)vk_icdGetInstanceProcAddr(VK_NULL_HANDLE,
+                                                                            "vkEnumerateInstanceExtensionProperties");
+   VkExtensionProperties instance_extensions[64];
+   uint32_t instance_extension_count = sizeof(instance_extensions) / sizeof(instance_extensions[0]);
+   c->display = false;
+   if (enumerate_instance_extensions &&
+       enumerate_instance_extensions(NULL, &instance_extension_count, instance_extensions) >= VK_SUCCESS) {
+      for (uint32_t i = 0; i < instance_extension_count; i++)
+         c->display |= strcmp(instance_extensions[i].extensionName, VK_KHR_DISPLAY_EXTENSION_NAME) == 0;
+   }
+   const char *const display_extensions[] = {VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_DISPLAY_EXTENSION_NAME};
    const VkInstanceCreateInfo instance_info = {
       .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
       .pApplicationInfo = &app,
+      .enabledExtensionCount = c->display ? 2 : 0,
+      .ppEnabledExtensionNames = display_extensions,
    };
    VkResult result = vkCreateInstance(&instance_info, NULL, &c->instance);
    check(result == VK_SUCCESS, "vkCreateInstance");
@@ -1861,7 +2244,7 @@ context_create(struct context *c)
       .synchronization2 = VK_TRUE,
       .dynamicRendering = VK_TRUE,
    };
-   const char *device_extensions[4];
+   const char *device_extensions[8];
    uint32_t enabled_extensions = 0;
    VkExtensionProperties extensions[512];
    uint32_t extension_count = sizeof(extensions) / sizeof(extensions[0]);
@@ -1874,6 +2257,7 @@ context_create(struct context *c)
          c->shading_rate |= strcmp(extensions[i].extensionName, VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME) == 0;
          c->acceleration_structure |=
             strcmp(extensions[i].extensionName, VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) == 0;
+         c->descriptor_buffer |= strcmp(extensions[i].extensionName, VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME) == 0;
       }
    }
    VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure = {
@@ -1892,12 +2276,28 @@ context_create(struct context *c)
       barycentric.pNext = features13.pNext;
       features13.pNext = &barycentric;
    }
+   if (c->display)
+      device_extensions[enabled_extensions++] = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+   VkPhysicalDeviceDescriptorBufferFeaturesEXT descriptor_buffer = {
+      .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_BUFFER_FEATURES_EXT,
+      .descriptorBuffer = VK_TRUE,
+   };
+   c->descriptor_buffer &= getenv("RADV_SMOKE_SPARSE_TIMING") != NULL;
+   if (c->descriptor_buffer) {
+      device_extensions[enabled_extensions++] = VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME;
+      features12.bufferDeviceAddress = VK_TRUE;
+      descriptor_buffer.pNext = features13.pNext;
+      features13.pNext = &descriptor_buffer;
+   }
    if (c->shading_rate) {
       device_extensions[enabled_extensions++] = VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME;
       shading_rate.pNext = features13.pNext;
       features13.pNext = &shading_rate;
    }
+   VkPhysicalDeviceFeatures supported;
+   vkGetPhysicalDeviceFeatures(c->physical, &supported);
    const VkPhysicalDeviceFeatures features = {
+      .sparseBinding = supported.sparseBinding,
       .geometryShader = VK_TRUE,
       .tessellationShader = VK_TRUE,
       .vertexPipelineStoresAndAtomics = VK_TRUE,
@@ -2062,6 +2462,12 @@ main(void)
          report("shading rate: VK_KHR_fragment_shading_rate is not reported; its checks are skipped");
       if (c.acceleration_structure)
          test_acceleration_structure(&c);
+      if (getenv("RADV_SMOKE_SPARSE_TIMING") && supported_sparse_binding(&c))
+         test_sparse_timing(&c);
+      if (c.display)
+         test_display(&c);
+      else
+         report("display: VK_KHR_display is not reported; its checks are skipped");
 #if defined(__PROSPERO__)
       /* Last: a GPU fault ends the run. It needs buffer device addresses. */
       if (c.acceleration_structure)

@@ -30,7 +30,8 @@ the rest are below.
 | conditional_rendering.transform_feedback | 9 | fixed on ps5-gs-compute (b26797e): a geometry shader's push constants now reach its rasterization copy (gsc-pc-gate-1) |
 | descriptor_indexing.*_minNonUniform, rasterization.culling.primitive_id | 7 | pass on 3057cb5 (triage-untriaged-1); they failed on builds from before the fixes made during main-1 |
 | memory.map_placed | 5 | placed maps implemented on ps5-gaps (a2dc2fc); 8 more cases need memfd_create, now in the platform layer (SDK fork 71f2494), to be proved together |
-| tessellation.geometry_interaction.limits | 2 | tessellation as compute with poly's tessellator on ps5-gs-tess (7e37334); console gate queued |
+| tessellation.geometry_interaction.limits | 2 | tessellation as compute with poly's tessellator, merged into ps5-port (ebaf6bc): s5-gate-1 passes them, and s5-regress-2 (every geometry shader as compute) and s5-default-1 run 13,455 cases each with no failure |
+| descriptor_buffer.sparse_*_buffer.multiple.*buffers32* | 8 | not a sparse defect: the test's compute pipeline takes 7.9 s in spirv_to_nir's optimisation loop at 16 buffers, and four times that at 32, in the development build (assertions and NIR validation after every pass); a release archive (b_ndebug) passes all 8 (sparse-db-32-rel-1). The acceptance run uses the release archive |
 | shader_object.misc.*.geometry_streams.enabled | 2 | compute passes built when the draw binds the objects, on ps5-gs-objects (a3fb747); console gate queued |
 | descriptor_heap.basic.fragment.input_attachment | 1 | a CTS bug: the test's subpass dependency made nothing visible to the input attachment; the fix upstream made after 1.4.6.2 (c8ff9475c5) is in the CTS fork (4615d988e2) and the case passes |
 | ray_tracing_pipeline (acceleration structures, builtin) | 5 | with ray tracing pipelines, below |
@@ -41,17 +42,17 @@ Upstream RADV offers these on Navi21; the port does not yet.
 
 | Item | Cases | What closes it |
 | --- | --- | --- |
-| Queue families: one graphics family only (upstream adds four compute queues and a sparse family). Exclusive compute queue, compute-only statistics, multi-queue synchronization, concurrent sharing | 253,171 | A compute and transfer family of four queues whose submissions go to the graphics ring through sceAgcDriverSubmitDcb, as upstream's family looks but without concurrency, which Vulkan does not promise (ps5-queues). Real concurrency is in the backlog, below |
+| Queue families: one graphics family only (upstream adds four compute queues and a sparse family). Exclusive compute queue, compute-only statistics, multi-queue synchronization, concurrent sharing | 253,171 | A compute and transfer family of four queues whose submissions go to the graphics ring through sceAgcDriverSubmitDcb, as upstream's family looks but without concurrency, which Vulkan does not promise. Merged into ps5-port (506ec2f): queues-gate-1, 25,318 cases, 20,390 pass and no failure; the rest are the CTS's own or need a second graphics queue, as on desktop RADV. Real concurrency is in the backlog, below |
 | Ray tracing: acceleration structures and ray queries | part of 116,323 | Reported on ps5-port (057d577, rq-full-1) |
 | Ray tracing pipelines, maintenance1, position fetch, pipeline library group handles | rest of 116,323 | Reported on ps5-port (729a983, rtp-sample-1); callees' spills restored the scratch base 4 GiB low until 8b2a6d9 (rt-spill-1: every subgroups ray tracing case passes or is not supported). Group handle capture and replay still not reported |
 | Sparse binding and residency, sparse atomics, image2DViewOf3DSparse, aliased residency | 36,666 | Reported on ps5-port (8abff82, dfc3fcf, 7848a74); descriptor buffers in sparse ranges since 400560e, and no dedicated sparse queue family without native timelines since a6bdf1a. shaderResourceResidency is not reported: no exported function sets PRT bits |
-| Mesh and task shaders | 59,923 | RADV's mesh path on GFX10.3 exports per-primitive attributes through the parameter cache, which this GPU does not have (measured: an implicit primitive ID read 0 as a per-primitive parameter, HARDWARE_FINDINGS.md). A mesh shader cannot run as compute instead: its outputs would need memory for every workgroup of a draw (up to 2^22, maxMeshWorkGroupTotalCount's minimum) where NGG streams them. What stays: RADV's NGG mesh path, measured first without task shaders (ps5-mesh, RADV_PS5_MESH, run mesh-exp-1), with per-primitive values sent as flat per-vertex values on vertices each primitive has to itself. Task shaders need a compute queue |
+| Mesh and task shaders | 59,923 | RADV's mesh path on GFX10.3 exports per-primitive attributes through the parameter cache, which this GPU does not have (HARDWARE_FINDINGS.md). On ps5-mesh, behind RADV_PS5_MESH: each primitive gets vertices of its own carrying its outputs flat, in parts of 256 vertices; indirect draws go through ordinary indirect draws of records a compute pass writes, since the CP rejects DISPATCH_MESH_INDIRECT_MULTI (mesh-exp-1); multiview's layer goes with the position. mesh-all-1, every mesh case without a task shader (10,650): 733 pass, no failure; 9,744 need mesh shader queries and 132 inherited conditional rendering, which upstream does not offer either. Not reported yet: when a workgroup's primitives go out in parts, only the first part runs its memory side effects, so an atomic's result that decides outputs is undefined in the others until the first part publishes it to them. Task shaders wait on the concurrency backlog item or on an emulation on the graphics ring |
 | Capture and replay addresses (buffer device address, descriptor buffer and heap, acceleration structures) | about 1,000 | Reported on ps5-port (397a324; replay-2) |
-| Memory types: no host-cached type, no non-device-local type | 19,368 + 9,126 + 2,650 | Tests asking for host-visible cached memory (compute.*.workgroup_memory_explicit_layout, reconvergence, renderpasses suballocation and others) and the memory model's host-cached and non-device-local variants. The coherence probe (VULKAN_1_4_PLAN.md S7, now in the RADV smoke title) decides whether a host-cached type can be real |
+| Memory types: no host-cached type, no non-device-local type | 19,368 + 9,126 + 2,650 | The coherence probe measured the CPU mapping cached and coherent both ways (HARDWARE_FINDINGS.md): the port describes an integrated GPU with host-cached types. Merged into ps5-port (20fe8ae): memtypes-gate-1, 50,014 cases, 44,993 pass, 8 quality warnings (map_placed: no /proc/self/maps to verify against) and no failure; 2,114 transient attachments ask for lazily allocated memory, which desktop RADV does not offer either |
 | Calibrated timestamps, present timing | 1,299 | Reported on ps5-port (425b404, 53fed7f; ts-2) |
-| External host memory (VK_EXT_external_memory_host) | 11 | The userptr probe (has_userptr) |
+| External host memory (VK_EXT_external_memory_host) | 11 | Anonymous memory takes GPU access through sceKernelMprotect (the smoke title's host pointer check); merged with the memory types (20fe8ae) |
 | Video (VK_KHR_video_*) | 11,149 | Not offered, with a reason (below) |
-| Window system: no surface or swapchain for the CTS (headless) | part of 32,544 | The CTS fork's PS5 platform offers headless displays (971a27e); merged-1 measures RADV's headless surfaces. The VideoOut swapchain the port needs anyway comes after |
+| Window system: no surface or swapchain for the CTS (headless) | part of 32,544 | The CTS fork's PS5 platform offers headless displays (971a27e); merged-1 measures RADV's headless surfaces. VK_KHR_display on VideoOut is on ps5-wsi: the smoke title presents 60 frames to the display, the last 50 in exactly 50 refresh periods, and replaces its swapchain; the CTS's display cases pass on the host model |
 | The sparse-binding bit on the only queue family, with no sparse support | honesty | Removed on ps5-gaps (a2dc2fc) |
 | conformanceVersion reports upstream's 1.4.5.3 | honesty | 0.0.0.0 on ps5-gaps (a2dc2fc) until the full run passes |
 
@@ -79,7 +80,7 @@ No work, each reason recorded where it was measured.
   ARM extensions, tile images, opacity micromaps, data graphs), inherited
   conditional rendering (482), advanced blend operations, fragment density
   maps, partitioned subgroups, multisampled render to single sampled, unified
-  image layouts, protected memory.
+  image layouts, protected memory, mesh shader queries.
 
 ## Backlog
 
@@ -105,5 +106,7 @@ Not needed to close a gap, and revisited later.
 2. Ray tracing pipelines, the shader object streams, slice 5.
 3. Compute queues (the largest gap), capture and replay, sparse, memory types,
    timestamps and host memory.
-4. Mesh shaders as compute, the headless WSI, the video investigation.
-5. The full CTS run.
+4. Mesh shaders, the headless WSI and the VideoOut swapchain, the video
+   investigation.
+5. The full CTS run, on the release archive (b_ndebug), which the titles
+   ship.

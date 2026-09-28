@@ -3711,3 +3711,44 @@ title's flexible memory) takes GPU read and write access through
 sceKernelMprotect (returned 0), and a compute shader then wrote 16 KiB of it
 through the address the CPU uses. That is what VK_EXT_external_memory_host
 imports.
+
+## 2026-09-27 — the command processor rejects DISPATCH_MESH_INDIRECT_MULTI (RADV)
+
+Every indirect mesh shader draw of dEQP-VK.mesh_shader.ext.api.draw_indirect*
+stopped the GPU (run mesh-exp-1): klog reported "GPU Bad packet error: Bad
+opcode" with the micro engine's latest packet header 0xc0074c04, opcode 0x4c,
+DISPATCH_MESH_INDIRECT_MULTI. Direct mesh draws, DRAW_INDEX_AUTO in legacy
+fast launch, run, and so does DRAW_INDIRECT_MULTI: indirect mesh draws now go
+through records a compute pass writes and ordinary indirect draws of them
+(mesh-exp-3: every draw_indirect case without a task shader passes).
+
+## 2026-09-27 — VideoOut flips RADV's images and paces FIFO presents (RADV)
+
+The RADV smoke title's display check, through Mesa's VideoOut backend
+(VK_KHR_display, ps5-wsi): five 32 MiB framebuffers of direct memory,
+registered once with tiling 0 and the B8G8R8A8 SDR format, imported into the
+device as host memory and laid out by RADV as 64 KiB R_X tiles without DCC or
+pipe and bank swizzle. Each present waits for its frame on a thread and flips
+with sceVideoOutSubmitFlip(handle, index, 1, argument).
+
+- 60 frames cleared and presented through three images; the last 50 took
+  0.834 s, 50 periods of the 59.94 Hz mode: the flips gate the presents.
+- The last frame read back its first and last pixels as cleared.
+- A swapchain made with the first as oldSwapchain presented 5 more frames,
+  and an acquire on the retired one returned VK_ERROR_OUT_OF_DATE_KHR.
+
+On the host model, RADV's addresses for such an image equal the demo
+renderer's CPU tile equation (src/demo_renderer.cpp, whose frames showed on
+this console) at all 552,960 pixels sampled.
+
+## 2026-09-27 — shader compiles are 5-6 times slower in the development build (RADV)
+
+The sparse descriptor buffer cases with 32 buffers timed out on the console.
+Instrumenting the driver showed the test's compute pipeline, the same with
+traditional buffers, spending 7.9 s (16 buffers) in radv_shader_spirv_to_nir,
+whose optimisation loop runs about 75 times over that shader. The console builds
+RADV with assertions and NIR validation after every pass (b_ndebug=false):
+on the host the same case takes 11.6 s that way and 2.3 s in a release build,
+and on the console the release archive passes all 8 cases (sparse-db-32-rel-1).
+The winsys itself (buffers, sparse binds, submissions, waits) took about
+100 ms of the case.

@@ -611,3 +611,35 @@ and 85 that did not pass, each accounted for:
 
 Against every earlier run, no case is worse but those the later runs above
 fixed.
+
+## 2026-09-27 — queues, memory types and slice 5 merged; mesh shaders; a VideoOut swapchain
+
+Merged into ps5-port after their gates, each with no failure:
+
+- ps5-queues (506ec2f): a compute and transfer family on the graphics ring.
+  queues-gate-1, 25,318 cases: 20,390 pass.
+- ps5-memtypes (20fe8ae): an integrated GPU's memory with host-cached types,
+  and host pointer imports. memtypes-gate-1, 50,014 cases: 44,993 pass, 8
+  quality warnings.
+- ps5-gs-tess (ebaf6bc): slice 5 with two fixes to the rasterization copy's
+  draw (RADV_GS_COMPUTE.md). s5-regress-2 (every geometry shader as compute)
+  and s5-default-1, 13,455 cases each: 11,721 pass.
+
+The 8 timeouts are explained: a development-build compile cost, not a sparse
+defect (HARDWARE_FINDINGS.md). The release archive passes them
+(sparse-db-32-rel-1).
+
+Mesh shaders without task shaders (ps5-mesh, still behind RADV_PS5_MESH):
+indirect draws go through draw records because the CP rejects
+DISPATCH_MESH_INDIRECT_MULTI, and multiview's layer goes with the position.
+mesh-exp-3 (the indirect and multiview cases, 295): 197 pass, no failure;
+mesh-all-1 (every case without a task shader, 10,650): 733 pass, no failure,
+the rest needing mesh shader queries or inherited conditional rendering, as
+upstream. One gap keeps them off by default: in a workgroup exported in
+parts, an atomic's result that decides outputs is undefined in the parts
+after the first.
+
+VK_KHR_display on VideoOut (ps5-wsi, with the platform layer's
+ps5platform/videoout.h in PS5_PayloadSDK 2f27d3b): the smoke title's display
+check passes (92 of 92 checks with it): 60 frames presented at the display's
+pace and a replaced swapchain.

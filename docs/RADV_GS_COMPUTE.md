@@ -215,6 +215,23 @@ stream cases): 24 pass, 2 not supported (extendedDynamicState3RasterizationStrea
 which upstream RADV does not report here either). The two
 tessellation.geometry_interaction.limits cases that lost the device pass.
 
+With every geometry shader forced through compute (RADV_PS5_GS_COMPUTE=1),
+the geometry, tessellation and transform feedback groups (13,455 cases,
+s5-regress-1) failed 7, all in the rasterization copy's draw:
+
+- RADV drops gl_PointSize from the last stage when the pipeline's topology is
+  static and not points; the copy draws the geometry shader's points whatever
+  the application's topology, so points rendered one pixel wide. The copy's
+  topology decides now.
+- poly matches strips that are each one primitive long to a list, and the
+  copy's draw took every mode but points and line strips for a triangle
+  strip: those lists were drawn as strips, bridging each primitive into the
+  next and onto its neighbour's layer or primitive ID. Each output mode has
+  its hardware topology now.
+
+s5-regress-2 (forced) and s5-default-1 (the default path): 11,721 pass, no
+failure. Merged into ps5-port (ebaf6bc).
+
 ## Open
 
 - **Shader objects** and **dynamic vertex input**: done on ps5-gs-objects
@@ -225,6 +242,6 @@ tessellation.geometry_interaction.limits cases that lost the device pass.
 - **Slice 5**: done on ps5-gs-tess, above. A geometry shader's
   gl_PrimitiveIDIn after tessellation counts the tessellator's primitives
   across the draw's instances, where Vulkan resets it per instance.
-- Merging the branch into ps5-port once main-1 is done, then rerunning the
-  groups it touches.
+- Merged into ps5-port (ebaf6bc) with the forced and default regressions
+  above.
 
