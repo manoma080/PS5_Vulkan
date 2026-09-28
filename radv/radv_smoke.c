@@ -1,6 +1,6 @@
 /*
  * PS5 Vulkan - RADV smoke test.
- * Copyright (C) 2026 Mihawk
+ * Copyright (C) 2026 Mihawk-99
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * The first program RADV runs on the console (docs/VULKAN_1_4_PLAN.md, Phase 1):

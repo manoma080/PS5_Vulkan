@@ -2,7 +2,7 @@
 // PS5 Vulkan - RADV smoke test: two triangles over the whole target, the
 // right-hand corners at w = 16 (dEQP-VK.fragment_shading_barycentric's
 // triangle list), each vertex naming itself (its index plus one).
-// Copyright (C) 2026 Mihawk
+// Copyright (C) 2026 Mihawk-99
 // SPDX-License-Identifier: GPL-3.0-or-later
 layout(location = 0) out uint vertex_id;
 void main()

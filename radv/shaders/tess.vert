@@ -1,7 +1,7 @@
 #version 450
 // PS5 Vulkan - RADV smoke test: the four corners of the whole target, as the
 // control points of one quad patch.
-// Copyright (C) 2026 Mihawk
+// Copyright (C) 2026 Mihawk-99
 // SPDX-License-Identifier: GPL-3.0-or-later
 void main()
 {

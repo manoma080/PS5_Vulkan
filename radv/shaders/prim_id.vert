@@ -1,7 +1,7 @@
 #version 450
 // PS5 Vulkan - RADV smoke test: two triangles splitting the target, left and
 // right (dEQP-VK.pipeline.*.misc.implicit_primitive_id's geometry).
-// Copyright (C) 2026 Mihawk
+// Copyright (C) 2026 Mihawk-99
 // SPDX-License-Identifier: GPL-3.0-or-later
 void main()
 {

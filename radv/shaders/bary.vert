@@ -3,7 +3,7 @@
 // itself (its index plus one) in an output the fragment shader reads per
 // vertex; with the specialisation constant set its last two corners swap, so
 // it winds the other way.
-// Copyright (C) 2026 Mihawk
+// Copyright (C) 2026 Mihawk-99
 // SPDX-License-Identifier: GPL-3.0-or-later
 layout(constant_id = 0) const bool other_winding = false;
 layout(location = 0) out uint vertex_id;

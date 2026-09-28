@@ -1,7 +1,7 @@
 #version 450
 // PS5 Vulkan - RADV smoke test: a strip of 100 vertices per point, whatever
 // gl_PrimitiveIDIn is, which the shader still reads.
-// Copyright (C) 2026 Mihawk
+// Copyright (C) 2026 Mihawk-99
 // SPDX-License-Identifier: GPL-3.0-or-later
 layout(points) in;
 layout(triangle_strip, max_vertices = 100) out;

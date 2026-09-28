@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # PS5 Vulkan - upload a built title folder over FTP.
-# Copyright (C) 2026 Mihawk
+# Copyright (C) 2026 Mihawk-99
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Upload dist/<TITLE_ID>/ to /data/homebrew/<TITLE_ID>/ on the console.
 

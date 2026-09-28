@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # PS5 Vulkan - launch a deployed title, capture its klog and fetch its results.
-# Copyright (C) 2026 Mihawk
+# Copyright (C) 2026 Mihawk-99
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Run a deployed title once and keep what it said.
 

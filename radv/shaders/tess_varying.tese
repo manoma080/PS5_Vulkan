@@ -1,7 +1,7 @@
 #version 450
 // PS5 Vulkan - RADV smoke test: positions from generic control points, and a
 // colour for the fragment shader.
-// Copyright (C) 2026 Mihawk
+// Copyright (C) 2026 Mihawk-99
 // SPDX-License-Identifier: GPL-3.0-or-later
 layout(quads, equal_spacing, ccw) in;
 layout(location = 0) in vec2 corner[];

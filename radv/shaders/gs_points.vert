@@ -1,6 +1,6 @@
 #version 450
 // PS5 Vulkan - RADV smoke test: point i at the left edge of row i of four.
-// Copyright (C) 2026 Mihawk
+// Copyright (C) 2026 Mihawk-99
 // SPDX-License-Identifier: GPL-3.0-or-later
 void main()
 {

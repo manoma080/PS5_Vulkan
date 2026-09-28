@@ -1,7 +1,7 @@
 #version 450
 // PS5 Vulkan - RADV smoke test: generic control points pass through, at the
 // tessellation level the specialisation constant gives.
-// Copyright (C) 2026 Mihawk
+// Copyright (C) 2026 Mihawk-99
 // SPDX-License-Identifier: GPL-3.0-or-later
 layout(vertices = 4) out;
 layout(constant_id = 0) const float level = 2.0;

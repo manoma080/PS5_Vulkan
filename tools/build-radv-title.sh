@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # PS5 Vulkan - build the RADV test title (PPSA99014).
-# Copyright (C) 2026 Mihawk
+# Copyright (C) 2026 Mihawk-99
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # The title that runs RADV on the console (docs/VULKAN_1_4_PLAN.md, Phase 1):

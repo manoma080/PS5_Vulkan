@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # PS5 Vulkan - summarise a batched CTS run (tools/run-cts.py).
-# Copyright (C) 2026 Mihawk
+# Copyright (C) 2026 Mihawk-99
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Summarise a batched CTS run: counts by status and the failures grouped.
 

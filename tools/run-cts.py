@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # PS5 Vulkan - run Vulkan CTS cases on the console (PPSA99015).
-# Copyright (C) 2026 Mihawk
+# Copyright (C) 2026 Mihawk-99
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Run a selection of the Vulkan CTS on the console and summarise it.
 

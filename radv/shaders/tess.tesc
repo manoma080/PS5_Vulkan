@@ -1,7 +1,7 @@
 #version 450
 // PS5 Vulkan - RADV smoke test: the patch passes through, tessellated in two
 // by two.
-// Copyright (C) 2026 Mihawk
+// Copyright (C) 2026 Mihawk-99
 // SPDX-License-Identifier: GPL-3.0-or-later
 layout(vertices = 4) out;
 void main()

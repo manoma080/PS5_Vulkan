@@ -3,7 +3,7 @@
 // the compiler keeps it in scratch memory, written and read at indices that
 // depend on the texel. Its size is the specialisation constant (a power of
 // two).
-// Copyright (C) 2026 Mihawk
+// Copyright (C) 2026 Mihawk-99
 // SPDX-License-Identifier: GPL-3.0-or-later
 layout(constant_id = 0) const int N = 256;
 layout(location = 0) out vec4 colour;

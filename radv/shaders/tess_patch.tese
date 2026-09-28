@@ -1,7 +1,7 @@
 #version 450
 // PS5 Vulkan - RADV smoke test: positions from the control points the
 // control shader wrote, covering the whole target.
-// Copyright (C) 2026 Mihawk
+// Copyright (C) 2026 Mihawk-99
 // SPDX-License-Identifier: GPL-3.0-or-later
 layout(quads, equal_spacing, ccw) in;
 void main()

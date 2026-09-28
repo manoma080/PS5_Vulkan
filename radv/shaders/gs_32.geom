@@ -1,7 +1,7 @@
 #version 450
 // PS5 Vulkan - RADV smoke test: each point becomes a strip of 32 vertices
 // across its row, a quarter of the target high.
-// Copyright (C) 2026 Mihawk
+// Copyright (C) 2026 Mihawk-99
 // SPDX-License-Identifier: GPL-3.0-or-later
 layout(points) in;
 layout(triangle_strip, max_vertices = 32) out;

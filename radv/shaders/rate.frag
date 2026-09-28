@@ -2,7 +2,7 @@
 #extension GL_EXT_fragment_shading_rate : require
 // PS5 Vulkan - RADV smoke test: counts its invocations and records the
 // shading rates they report, so a coarse rate shows as fewer invocations.
-// Copyright (C) 2026 Mihawk
+// Copyright (C) 2026 Mihawk-99
 // SPDX-License-Identifier: GPL-3.0-or-later
 layout(set = 0, binding = 0, std430) buffer Counts
 {

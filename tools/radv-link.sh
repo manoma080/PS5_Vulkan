@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # PS5 Vulkan - link recipe for titles that link RADV.
-# Copyright (C) 2026 Mihawk
+# Copyright (C) 2026 Mihawk-99
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Sourced by tools/build-radv-title.sh (and, later, by every title that links

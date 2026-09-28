@@ -1,7 +1,7 @@
 #version 450
 // PS5 Vulkan - RADV smoke test: each point passes through, and its geometry
 // shader invocation records the primitive and invocation IDs it was given.
-// Copyright (C) 2026 Mihawk
+// Copyright (C) 2026 Mihawk-99
 // SPDX-License-Identifier: GPL-3.0-or-later
 layout(points) in;
 layout(points, max_vertices = 1) out;
