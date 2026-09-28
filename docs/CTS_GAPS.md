@@ -41,7 +41,7 @@ Upstream RADV offers these on Navi21; the port does not yet.
 
 | Item | Cases | What closes it |
 | --- | --- | --- |
-| Queue families: one graphics family only (upstream adds four compute queues and a sparse family). Exclusive compute queue, compute-only statistics, multi-queue synchronization, concurrent sharing | 249,885 + 2,846 | A console probe of AGC's asynchronous compute submission (sceAgcDriverSubmitAcb), designed but not run yet. Public hints: the AnyPS5 emulator models it as (queue, the submission description sceAgcDriverSubmitDcb takes), queues 0x20 to 0x57; Mesa keeps GFX1013's compute queue off as broken, and a public BC-250 project traces that to asynchronous threadgroup dispatches with partial threadgroups (RADV's has_async_compute_threadgroup_bug workaround) and to amdgpu's queue teardown. The winsys also needs cross-queue waits |
+| Queue families: one graphics family only (upstream adds four compute queues and a sparse family). Exclusive compute queue, compute-only statistics, multi-queue synchronization, concurrent sharing | 253,171 | A compute and transfer family of four queues whose submissions go to the graphics ring through sceAgcDriverSubmitDcb, as upstream's family looks but without concurrency, which Vulkan does not promise (ps5-queues). Real concurrency is in the backlog, below |
 | Ray tracing: acceleration structures and ray queries | part of 116,323 | Reported on ps5-port (057d577, rq-full-1) |
 | Ray tracing pipelines, maintenance1, position fetch, pipeline library group handles | rest of 116,323 | Reported on ps5-port (729a983, rtp-sample-1); callees' spills restored the scratch base 4 GiB low until 8b2a6d9 (rt-spill-1: every subgroups ray tracing case passes or is not supported). Group handle capture and replay still not reported |
 | Sparse binding and residency, sparse atomics, image2DViewOf3DSparse, aliased residency | 36,666 | Reported on ps5-port (8abff82, dfc3fcf, 7848a74); descriptor buffers in sparse ranges since 400560e, and no dedicated sparse queue family without native timelines since a6bdf1a. shaderResourceResidency is not reported: no exported function sets PRT bits |
@@ -80,6 +80,21 @@ No work, each reason recorded where it was measured.
   conditional rendering (482), advanced blend operations, fragment density
   maps, partitioned subgroups, multisampled render to single sampled, unified
   image layouts, protected memory.
+
+## Backlog
+
+Not needed to close a gap, and revisited later.
+
+- **Concurrent compute queues.** The compute family runs on the graphics
+  ring, in turn with graphics. Running it alongside needs AGC's asynchronous
+  compute queues: sceAgcDriverSubmitAcb (the AnyPS5 emulator models a title's
+  queues as 0x20 to 0x57) or a queue from sceAgcDriverCreateQueue, whose
+  arguments are unknown. The console probe that would establish either was
+  blocked by the auto-mode classifier on 2026-09-27 and needs my approval.
+  Mesa keeps GFX1013's compute queue off for a threadgroup bug RADV already
+  works around (has_async_compute_threadgroup_bug). Task shaders, which RADV
+  runs on that queue, wait on it or on their own emulation on the graphics
+  ring.
 
 ## Order
 
