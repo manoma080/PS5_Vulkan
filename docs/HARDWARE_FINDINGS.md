@@ -3687,3 +3687,27 @@ are the same title memory. The one variant not measured is an
 INDIRECT_BUFFER into the submitted range itself (VULKAN_1_4_PLAN.md S5), which
 device-generated commands could not use directly anyway, and B8 froze the
 console, so it stays unrun without a reason to need it.
+
+## 2026-09-27 — the driver's memory is cached and coherent both ways; anonymous memory takes GPU access (RADV)
+
+Measured by the RADV smoke title on the memory the PS5 winsys allocates
+(direct memory mapped for the CPU and the GPU), with no flush or invalidate
+anywhere:
+
+- 64 rounds of 4 KiB written by the CPU and copied by the GPU at once into a
+  region the CPU never touched: the GPU read every word the CPU had just
+  written.
+- 64 rounds of 4 KiB the CPU had just read (so its caches held them), then
+  filled by the GPU: the CPU read every new word.
+- 16 MiB read in 0.93 ms from that mapping and 0.98 ms from the title's own
+  heap, and written in 1.08 ms each: the mapping is cached, not
+  write-combined or uncached.
+
+So host-visible memory there is cached and coherent both ways, which
+HOST_CACHED and HOST_COHERENT together describe.
+
+Also from the smoke title: anonymous memory a title maps itself (mmap, the
+title's flexible memory) takes GPU read and write access through
+sceKernelMprotect (returned 0), and a compute shader then wrote 16 KiB of it
+through the address the CPU uses. That is what VK_EXT_external_memory_host
+imports.
