@@ -643,3 +643,13 @@ VK_KHR_display on VideoOut (ps5-wsi, with the platform layer's
 ps5platform/videoout.h in PS5_PayloadSDK 2f27d3b): the smoke title's display
 check passes (92 of 92 checks with it): 60 frames presented at the display's
 pace and a replaced swapchain.
+
+## 2026-09-27 — vkQuake runs on RADV
+
+With the VideoOut swapchain merged (ps5-port 7e30f3e), vkQuake links RADV
+(PS5_vkQuake's `radv` branch, PS5_VULKAN_DRIVER=radv, through
+tools/radv-link.sh) and runs its demo loop on the console at 119.88 fps in
+every steady window, one vblank a frame, taking the 120 Hz mode the title
+declares; first present 3.3 s after start, the pipelines 0.69 s without a
+shader cache (PS5_vkQuake evidence/radv-r1-demo). The installed title was
+put back to the ps5vk build afterwards.
