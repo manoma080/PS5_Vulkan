@@ -581,3 +581,33 @@ records every command: crashes and asserts in those paths show there before
 a console run. The Vulkan loader unloads and reloads the driver between the
 CTS's instances, which left the model's address window reserved by the
 first load; the window now goes with the library (5e2849a).
+
+The headless WSI cases then crashed: Mesa's headless swapchain gave any
+driver but a software one DRM images, which exist only with libdrm, so
+get_blit_type asserted (PS5_Mesa 5f016bf: CPU images and a blit to a host
+buffer without libdrm), and RADV put that blit on a private SDMA queue on
+every GFX9+ GPU, which asserted without SDMA (8dfaa00: the presenting queue
+blits). headless-2, 85 of the headless cases: 3 pass, 82 not supported for
+what Mesa's headless surface offers (present modes, scaling, transforms,
+present timing), as upstream. merged-1 resumed on 8dfaa00.
+
+merged-1 ended with 311,927 cases: 211,504 pass, 100,327 not supported, 11
+quality warnings (placed maps' missing /proc/self/maps, two pipeline
+library shader module identifiers and a pipeline binary, all as before),
+and 85 that did not pass, each accounted for:
+
+- 72 crashes fixed and proved since: sparse descriptor buffers (58,
+  sparse-db-1 and -2), ray tracing spills (9, rt-spill-1), headless
+  swapchains (5, headless-2);
+- descriptor_heap.basic.fragment.input_attachment, the CTS bug (passes in
+  sparse-db-1);
+- the two shader object streams cases (ps5-gs-objects, gate queued) and the
+  two tessellation limits cases (ps5-gs-tess, gate queued);
+- 8 timeouts, every *.multiple.*buffers32_sets1 case of the sparse
+  descriptor buffer groups: the title runs one CPU at 99% until the CTS's
+  watchdog ends it, where the same cases with ordinary buffers pass. Open;
+  run alone next (sparse-db-32-1) to tell a slow case from one slowed by
+  what earlier cases left behind.
+
+Against every earlier run, no case is worse but those the later runs above
+fixed.
