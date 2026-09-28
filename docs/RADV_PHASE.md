@@ -811,3 +811,20 @@ empty cache (pipelines 0.96 s, against 0.62 s with no cache at all), 2.71 s
 with it filled (pipelines 0.14 s), and the demo loop at 119.88 fps. The
 installed title is that build. Shipping a harvested cache with a title, as
 ps5vk does, is open, as is the device and swapchain start-up (about 2.5 s).
+
+## 2026-09-28 — RetroArch runs on RADV
+
+The first console runs of PS5_RetroArch's `radv` branch (release archive at
+884f954, each launched from args.txt with a capture at a fixed frame): the
+menu renders; PPSSPP's God of War: Ghost of Sparta, Dolphin's Wind Waker and
+LRPS2's GTA San Andreas reach their title screens with every 10 s audio
+window full after boot (LRPS2: two late windows at 99.8% and 98.9%, where
+ps5vk's run of the same content had one at 99.4%). The PPSSPP and LRPS2
+pictures match ps5vk's. PPSSPP first faulted on a null vkCreateRenderPass2:
+it took the device's 1.4 as usable on RetroArch's 1.1 instance, and RADV
+returns null for a core command above the instance's version, as it must;
+the fix is PPSSPP's (PS5_RetroArch 15ea4b2), not the driver's. Open before
+the cores leave ps5vk: pipeline compiles cost PPSSPP 0.7% of one window
+with an empty shader cache, and RetroArch's release battery (every core,
+menu actions, closing and reopening content, a PPSSPP soak) has not run on
+RADV.

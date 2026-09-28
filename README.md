@@ -96,9 +96,16 @@ What stands on the console (2026-09-28):
   neither per-primitive parameters nor the CP's task and mesh dispatch
   packets: mesh workgroups go out in parts that share one run's outputs, and
   task shaders run on the graphics ring in chunks (docs/RADV_PHASE.md).
-- **Not there yet:** concurrency between queues (in the backlog), and
-  RetroArch, whose PPSSPP, Dolphin and LRPS2 cores stay on ps5vk until they
-  pass on RADV.
+- **RetroArch on RADV** ran on the console for the first time on 2026-09-28
+  (PS5_RetroArch's `radv` branch): the menu, PPSSPP (God of War: Ghost of
+  Sparta), Dolphin (Wind Waker) and LRPS2 (GTA San Andreas) render, at full
+  speed once the shader cache is filled, and the PPSSPP and LRPS2 pictures
+  match ps5vk's (Dolphin's was not compared). PPSSPP
+  needed a fix of its own: it used Vulkan 1.2 commands on a 1.1 instance.
+- **Not there yet:** concurrency between queues (in the backlog); RetroArch's
+  release battery on RADV (every core, menu actions, closing and reopening
+  content, a PPSSPP soak) and pipeline compiles that cost no speed, before its
+  cores leave ps5vk.
 
 Building it:
 
