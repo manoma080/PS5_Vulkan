@@ -9,22 +9,23 @@ _Updated: 2026-09-27_
 ## Now
 **Vulkan 1.4 and the CTS: route B is under way** ([VULKAN_1_4_PLAN.md](VULKAN_1_4_PLAN.md)).
 RADV runs on the console with a PS5 winsys, and CTS 1.4.6.2 runs there as
-PPSA99015; findings and fixes are in [RADV_PHASE.md](RADV_PHASE.md). The first
-full pass (`main-1`, every mustpass group but transform feedback) ended on
-3057cb5: 1,098,388 pass, 1,675,626 not supported, 12,005 did not pass, of
-which 1,435 were fixed while it ran and 10,560 belong to features since
-switched off. Measured and no longer reported: fragment barycentrics,
-variable-rate shading, device-generated commands, performance queries. On
-unmerged fork branches: geometry shaders as compute (ps5-gs-compute, now with
-conditional capture), ray queries (ps5-rt), the GFX1013 traits in one place
-(ps5-gfx1013-traits, its large gate running) and placed maps with honest
-queue and conformance reports (ps5-gaps; the platform's memfd_create goes
-with it). Next: merge them, then one targeted rerun of every case main-1 did
-not pass. Ray tracing pipelines are on ps5-rt-pipelines. No full CTS rerun
-until every item in [CTS_GAPS.md](CTS_GAPS.md) (each failure, and each "not
-supported" the port caused) is closed by a targeted run; the largest is the
-compute queue, whose AGC submission probe is designed and not run yet. ps5vk keeps shipping until RADV passes
-the same titles.
+PPSA99015; findings and fixes are in [RADV_PHASE.md](RADV_PHASE.md). After
+the first full pass (`main-1`), the merged driver's targeted rerun
+(`merged-1`, 311,927 cases) ended with 211,504 pass and every case that did
+not pass accounted for; its crashes are fixed and proved. On ps5-port: ray
+queries and ray tracing pipelines, geometry shaders as compute, sparse
+resources, capture and replay, calibrated timestamps, placed maps, the
+GFX1013 traits, headless swapchains. On branches, each with its console gate
+queued: shader objects with a geometry shader (ps5-gs-objects), tessellation
+with a geometry shader as compute (ps5-gs-tess), mesh shaders without task
+shaders (ps5-mesh, first measured behind RADV_PS5_MESH), a compute and
+transfer queue family on the graphics ring (ps5-queues; real concurrency is
+in the backlog), and an integrated-GPU memory description with host-cached
+types (ps5-memtypes, waiting on the smoke title's coherence probe). Open: the
+sparse descriptor buffer cases with 32 buffers, which run past the CTS's
+watchdog. No full CTS rerun until every item in [CTS_GAPS.md](CTS_GAPS.md)
+is closed by a targeted run. ps5vk keeps shipping until RADV passes the same
+titles.
 
 **Dolphin (Wind Waker) through ../PS5_RetroArch is the priority.** Every
 driver fault it shows is reduced to a runner probe, fixed as a general Vulkan
