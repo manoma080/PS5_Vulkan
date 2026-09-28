@@ -839,3 +839,26 @@ Menu and loaded it again, three driver initialisations a run. PPSSPP ran ten
 minutes with 25 menu toggles. No crash, and the soak's windows were at 98-100%,
 as on ps5vk. What stands between RetroArch and RADV is compile time: with an
 empty shader cache PPSSPP and Dolphin lost 0.8% of one window each.
+
+## 2026-09-28 — Compile time on the console: the heap's lock
+
+RADV timed its own pipeline creation on the console (a scratch build): for
+PPSSPP's God of War from an empty cache, 45 ms a pipeline, SPIR-V to NIR
+15 ms, ACO 14 ms, the other NIR passes the rest; with the cache filled, every
+pipeline a hit and all of the time disk reads (PPSSPP reads from many threads
+at once). The same pipelines, captured on the console and compiled by the
+PS5 host model, take 7.4 ms on one host thread; Dolphin's, compiled on few
+threads, take as long on the console as on the host. On the host, one lock
+over every allocation doubled PPSSPP's time a pipeline at eight threads
+(19.6 ms median against 9.3), and both heaps the titles use were one locked
+dlmalloc mspace.
+
+PS5_PayloadSDK 714a6fc and 95c08f2 give the title heap up to eight arenas,
+one for each allocating thread, a block going back to its own from any
+thread, and offer it without its wraps; the RetroArch title's overflow heap
+is that heap now (PS5_RetroArch 2d73b42). PPSSPP's compiles from an empty cache
+on the console: 5,480 ms to 2,043 ms, median 37.4 ms to 17.4 ms, and its
+windows after boot are full. vkQuake's start-up is unchanged (its pipelines
+compile on fewer threads), the smoke test passes 102 of 102, and RetroArch's
+battery and soak pass again. Dolphin's boot with an empty cache still loses
+17% and 8% of its first two windows to its ubershaders.

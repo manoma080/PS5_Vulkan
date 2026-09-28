@@ -106,9 +106,11 @@ What stands on the console (2026-09-28):
   with a game, closing and reloading content through the Quick Menu, threaded
   video, and a ten-minute PPSSPP soak.
 - **Not there yet:** concurrency between queues (in the backlog), and
-  pipeline compiles that cost no speed: with an empty shader cache PPSSPP and
-  Dolphin lose up to 0.8% of a 10 s window on RADV. Until then RetroArch's
-  cores stay on ps5vk.
+  Dolphin's boot with an empty shader cache, which compiles its ubershaders
+  and loses 17% and 8% of its first two 10 s windows on RADV. PPSSPP's compiles
+  no longer cost it speed since the platform heap gives each thread an arena
+  of its own (below). Until Dolphin's boot is answered RetroArch's cores stay
+  on ps5vk.
 
 Building it:
 
