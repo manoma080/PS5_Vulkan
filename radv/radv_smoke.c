@@ -153,9 +153,15 @@ check(bool ok, const char *what)
    X(AllocateDescriptorSets)                                                                       \
    X(UpdateDescriptorSets)
 
+/* Loaded when c->mesh. */
+#define MESH_COMMANDS(X)                                                                           \
+   X(CmdDrawMeshTasksEXT)                                                                          \
+   X(CmdDrawMeshTasksIndirectEXT)
+
 #define DECLARE(name) static PFN_vk##name vk##name;
 INSTANCE_COMMANDS(DECLARE)
 DEVICE_COMMANDS(DECLARE)
+MESH_COMMANDS(DECLARE)
 static PFN_vkCreateInstance vkCreateInstance;
 
 static bool
@@ -212,10 +218,22 @@ struct context {
    bool display;
    /* VK_EXT_descriptor_buffer is reported and enabled (test_sparse_timing). */
    bool descriptor_buffer;
+   /* VK_EXT_mesh_shader is reported and its mesh shaders enabled (test_mesh). */
+   bool mesh;
    /* How render_readback_with records its draw (test_geometry's draw checks):
     * directly by default. Indices are 16-bit. */
    struct {
-      enum { DRAW_DIRECT, DRAW_INDEXED, DRAW_INDIRECT, DRAW_INDEXED_INDIRECT, DRAW_INDIRECT_COUNT } mode;
+      enum {
+         DRAW_DIRECT,
+         DRAW_INDEXED,
+         DRAW_INDIRECT,
+         DRAW_INDEXED_INDIRECT,
+         DRAW_INDIRECT_COUNT,
+         DRAW_MESH,
+         DRAW_MESH_INDIRECT,
+      } mode;
+      /* DRAW_MESH's workgroups. */
+      uint32_t groups[3];
       bool restart;
       VkBuffer indices;
       VkBuffer args;
@@ -562,7 +580,7 @@ render_readback_with(struct context *c, const char *what, const VkPipelineShader
          .binding = 0,
          .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
          .descriptorCount = 1,
-         .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS,
+         .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS | (c->mesh ? VK_SHADER_STAGE_MESH_BIT_EXT : 0),
       };
       const VkDescriptorSetLayoutCreateInfo set_info = {
          .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
@@ -728,6 +746,13 @@ render_readback_with(struct context *c, const char *what, const VkPipelineShader
       case DRAW_INDIRECT_COUNT:
          vkCmdDrawIndirectCount(c->cmd, c->draw.args, 0, c->draw.count, 0, c->draw.max_draws,
                                 sizeof(VkDrawIndirectCommand));
+         break;
+      case DRAW_MESH:
+         vkCmdDrawMeshTasksEXT(c->cmd, c->draw.groups[0], c->draw.groups[1], c->draw.groups[2]);
+         break;
+      case DRAW_MESH_INDIRECT:
+         vkCmdDrawMeshTasksIndirectEXT(c->cmd, c->draw.args, 0, c->draw.max_draws,
+                                       sizeof(VkDrawMeshTasksIndirectCommandEXT));
          break;
       }
       vkCmdEndRendering(c->cmd);
@@ -2244,7 +2269,7 @@ context_create(struct context *c)
       .synchronization2 = VK_TRUE,
       .dynamicRendering = VK_TRUE,
    };
-   const char *device_extensions[8];
+   const char *device_extensions[12];
    uint32_t enabled_extensions = 0;
    VkExtensionProperties extensions[512];
    uint32_t extension_count = sizeof(extensions) / sizeof(extensions[0]);
@@ -2258,7 +2283,17 @@ context_create(struct context *c)
          c->acceleration_structure |=
             strcmp(extensions[i].extensionName, VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) == 0;
          c->descriptor_buffer |= strcmp(extensions[i].extensionName, VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME) == 0;
+         c->mesh |= strcmp(extensions[i].extensionName, VK_EXT_MESH_SHADER_EXTENSION_NAME) == 0;
       }
+   }
+   VkPhysicalDeviceMeshShaderFeaturesEXT mesh = {
+      .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT,
+      .meshShader = VK_TRUE,
+   };
+   if (c->mesh) {
+      device_extensions[enabled_extensions++] = VK_EXT_MESH_SHADER_EXTENSION_NAME;
+      mesh.pNext = features13.pNext;
+      features13.pNext = &mesh;
    }
    VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure = {
       .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
@@ -2316,6 +2351,11 @@ context_create(struct context *c)
    check(result == VK_SUCCESS, "vkCreateDevice");
    if (result != VK_SUCCESS || !load_device(c->device))
       return false;
+   if (c->mesh) {
+#define LOAD(name) c->mesh &= (vk##name = (PFN_vk##name)vkGetDeviceProcAddr(c->device, "vk" #name)) != NULL;
+      MESH_COMMANDS(LOAD)
+#undef LOAD
+   }
    vkGetDeviceQueue(c->device, c->family, 0, &c->queue);
 
    const VkCommandPoolCreateInfo pool_info = {
@@ -2334,6 +2374,100 @@ context_create(struct context *c)
       .commandBufferCount = 1,
    };
    return vkAllocateCommandBuffers(c->device, &cmd_info, &c->cmd) == VK_SUCCESS;
+}
+
+/* A mesh shader whose outputs follow an atomic (radv/shaders/mesh_ticket.mesh):
+ * each of 32 x 32 workgroups takes a ticket and paints its 8-pixel cell in the
+ * ticket's colour with 128 triangles, which this GPU gets in two parts. Every
+ * cell must be one colour, every ticket taken once, and the counter must end
+ * at the number of workgroups: the workgroup ran once, and its second part
+ * showed what the first computed. 1,024 workgroups also go round the port's
+ * publish ring more than once. */
+static bool
+mesh_tickets_check(struct context *c, const char *what, const struct buffer *readback, const struct buffer *tickets)
+{
+   enum { CELLS = TARGET_SIZE / 8, WORKGROUPS = CELLS * CELLS };
+   static bool seen[WORKGROUPS];
+   memset(seen, 0, sizeof(seen));
+   const uint8_t *pixels = readback->map;
+   uint32_t mixed = 0, uncovered = 0, repeated = 0;
+   for (uint32_t cy = 0; cy < CELLS; cy++) {
+      for (uint32_t cx = 0; cx < CELLS; cx++) {
+         const uint8_t *first = pixels + ((cy * 8) * TARGET_SIZE + cx * 8) * 4;
+         bool uniform = true;
+         for (uint32_t y = 0; y < 8; y++)
+            for (uint32_t x = 0; x < 8; x++)
+               uniform &= memcmp(pixels + ((cy * 8 + y) * TARGET_SIZE + cx * 8 + x) * 4, first, 4) == 0;
+         mixed += !uniform;
+         if (first[2] != 0 || first[3] != 255) {
+            uncovered++;
+            continue;
+         }
+         const uint32_t ticket = first[0] | (uint32_t)first[1] << 8;
+         if (ticket >= WORKGROUPS || seen[ticket])
+            repeated++;
+         else
+            seen[ticket] = true;
+      }
+   }
+   const uint32_t counter = *(const uint32_t *)tickets->map;
+   char label[160];
+   snprintf(label, sizeof(label), "%s: %u workgroups each ran once and every cell shows one ticket", what, WORKGROUPS);
+   const bool ok = mixed == 0 && uncovered == 0 && repeated == 0 && counter == WORKGROUPS;
+   if (!ok)
+      report("%s: %u cells of two colours, %u uncovered, %u tickets out of range or twice, counter %u", what, mixed,
+             uncovered, repeated, counter);
+   check(ok, label);
+   (void)c;
+   return ok;
+}
+
+static void
+test_mesh(struct context *c)
+{
+   struct buffer readback = {0}, tickets = {0}, args = {0};
+   if (!buffer_create(c, TARGET_SIZE * TARGET_SIZE * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT, &readback) ||
+       !buffer_create(c, 64, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, &tickets) ||
+       !buffer_create(c, 2 * sizeof(VkDrawMeshTasksIndirectCommandEXT), VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, &args)) {
+      check(false, "mesh: buffers");
+      return;
+   }
+   VkShaderModule mesh = shader(c, radv_smoke_mesh_ticket_mesh, sizeof(radv_smoke_mesh_ticket_mesh));
+   VkShaderModule frag = shader(c, radv_smoke_mesh_colour_frag, sizeof(radv_smoke_mesh_colour_frag));
+   const VkPipelineShaderStageCreateInfo stages[2] = {
+      stage_info(VK_SHADER_STAGE_MESH_BIT_EXT, mesh),
+      stage_info(VK_SHADER_STAGE_FRAGMENT_BIT, frag),
+   };
+
+   /* One draw of 32 x 32 workgroups. */
+   memset(tickets.map, 0, 64);
+   c->draw.mode = DRAW_MESH;
+   c->draw.groups[0] = TARGET_SIZE / 8;
+   c->draw.groups[1] = TARGET_SIZE / 8;
+   c->draw.groups[2] = 1;
+   if (render_readback_with(c, "mesh tickets, one draw", stages, 2, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, 0, 0,
+                            &readback, tickets.buffer, NULL))
+      mesh_tickets_check(c, "mesh tickets, one draw", &readback, &tickets);
+
+   /* The same cells from two indirect draws of 32 x 16: the second's
+    * workgroups come after the first's. */
+   memset(tickets.map, 0, 64);
+   VkDrawMeshTasksIndirectCommandEXT *const commands = args.map;
+   commands[0] = (VkDrawMeshTasksIndirectCommandEXT){TARGET_SIZE / 8, TARGET_SIZE / 16, 1};
+   commands[1] = commands[0];
+   c->draw.mode = DRAW_MESH_INDIRECT;
+   c->draw.args = args.buffer;
+   c->draw.max_draws = 2;
+   if (render_readback_with(c, "mesh tickets, two indirect draws", stages, 2, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+                            0, 0, &readback, tickets.buffer, NULL))
+      mesh_tickets_check(c, "mesh tickets, two indirect draws", &readback, &tickets);
+
+   memset(&c->draw, 0, sizeof(c->draw));
+   vkDestroyShaderModule(c->device, mesh, NULL);
+   vkDestroyShaderModule(c->device, frag, NULL);
+   buffer_destroy(c, &args);
+   buffer_destroy(c, &tickets);
+   buffer_destroy(c, &readback);
 }
 
 /* The external host memory probe (docs/CTS_GAPS.md, VK_EXT_external_memory_host):
@@ -2462,6 +2596,10 @@ main(void)
          report("shading rate: VK_KHR_fragment_shading_rate is not reported; its checks are skipped");
       if (c.acceleration_structure)
          test_acceleration_structure(&c);
+      if (c.mesh)
+         test_mesh(&c);
+      else
+         report("mesh: VK_EXT_mesh_shader is not reported; its checks are skipped");
       if (getenv("RADV_SMOKE_SPARSE_TIMING") && supported_sparse_binding(&c))
          test_sparse_timing(&c);
       if (c.display)

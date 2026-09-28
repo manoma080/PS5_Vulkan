@@ -672,3 +672,35 @@ eboot.bin put back after the first RADV run was a copy read off the console
 over FTP, which returns signed executables decrypted, and the loader refused
 the plain ELF (sceSblAuthMgrAuthHeader error 46, launch error 0x80020008).
 A title is restored by deploying a build, never by writing back what FTP read.
+
+## 2026-09-28 — mesh shaders reported
+
+A mesh workgroup whose primitives go out in parts used to run once per part,
+its memory side effects confined to the first, so an atomic's result that
+decided an output was undefined in the later parts. Now the first part runs
+the workgroup once and publishes what the others need in a slot of a 16 MiB
+device ring: the output counts, the LDS outputs, and the outputs the scratch
+ring would have held, which go straight to the slot. Later parts wait for the
+slot, copy it back and export their share; the last one frees it. Workgroups
+take slots in launch order, counted across the draw packet, and wait only for
+earlier ones, which the hardware launched first; the packet's last user of a
+slot zeroes it, and a VS partial flush separates packets (and multiview's
+views). The draw records carry what the shader needs: the ring, the draw's
+first workgroup (the records prepass now walks the draws in order, 32 at a
+time with a subgroup scan) and the packet's workgroups.
+
+The smoke title gained mesh tickets: 32 x 32 workgroups each take a ticket
+from an atomic and paint their cell in its colour with 128 triangles, which go
+out in two parts. On the console, one draw and a pair of indirect draws both
+show every workgroup running once and every cell one ticket (1,024 workgroups
+go round the ring's 256 slots four times). mesh-port-1 on the merge
+(ps5-port b381f60): the 10,650 mesh cases without a task shader, 733 pass and
+no failure, with mesh reported by default. The smoke title: 96 of 96.
+
+One trap on the way: poly's library functions are serialized NIR made at
+build time by the host's vtn_bindgen2, so a new NIR intrinsic needs host tools
+from the same tree. A build that found older tools crashed deserializing them
+(read_lookup_object, in geometry shaders run as compute for shader objects).
+tools/build-radv.sh builds its host tools from the pinned revision, so its
+archives are consistent; development build trees must be configured with tools
+from their own tree.
