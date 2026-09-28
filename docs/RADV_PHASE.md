@@ -561,3 +561,23 @@ on the 1.4.6 release branch). The CTS fork carries the fix (4615d988e2) and
 the case passes (sparse-db-1).
 
 merged-1 resumed on a6bdf1a and CTS 4615d988e2 from case 144,298.
+
+Past batch 11, merged-1 crashed on every
+dEQP-VK.subgroups.ballot_broadcast.ray_tracing case with the widest types
+(uvec4, dvec3, 64-bit vectors, bvec2 to bvec4): a GPU write at 0x3f...,
+just below a scratch buffer at 0x40.... Those shaders spill, and with
+buffer scratch (ray tracing pipelines here, GFX6-8 upstream) a callee whose
+spills overflow the offset range moves the stack pointer, the scratch
+descriptor's base, by the spill area and back. ACO restored it by adding the
+negative offset with s_addc_u32, whose carry means nothing was borrowed,
+and then subtracted that carry from the high word as a borrow: every
+restore moved the base down 4 GiB. It now adds -1 plus the carry (PS5_Mesa
+8b2a6d9). rt-spill-1, all 1,431 subgroups ray tracing cases: 1,018 pass,
+413 not supported, none fail. merged-1 resumed on 8b2a6d9.
+
+The host CTS (PS5_VK-GL-CTS/build-host, vulkan_headless) now runs against
+the host model, which executes nothing but compiles every pipeline and
+records every command: crashes and asserts in those paths show there before
+a console run. The Vulkan loader unloads and reloads the driver between the
+CTS's instances, which left the model's address window reserved by the
+first load; the window now goes with the library (5e2849a).
