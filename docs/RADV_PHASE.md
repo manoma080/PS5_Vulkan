@@ -673,7 +673,7 @@ over FTP, which returns signed executables decrypted, and the loader refused
 the plain ELF (sceSblAuthMgrAuthHeader error 46, launch error 0x80020008).
 A title is restored by deploying a build, never by writing back what FTP read.
 
-## 2026-09-28 — mesh shaders reported
+## 2026-09-28 — mesh workgroups run once; mesh shaders not reported yet
 
 A mesh workgroup whose primitives go out in parts used to run once per part,
 its memory side effects confined to the first, so an atomic's result that
@@ -704,3 +704,10 @@ from the same tree. A build that found older tools crashed deserializing them
 tools/build-radv.sh builds its host tools from the pinned revision, so its
 archives are consistent; development build trees must be configured with tools
 from their own tree.
+
+Mesh shaders were reported by default for one merge (b381f60), and the
+targeted rerun of every case main-1 and merged-1 did not pass
+(final-targets-1) failed dEQP-VK.info.device_mandatory_features at once:
+VK_EXT_mesh_shader requires taskShader as well as meshShader. So mesh shaders
+went back behind RADV_PS5_MESH (ps5-port b0a175c) until task shaders run; the
+publish ring and the draw records stay, as task shaders will need them.
