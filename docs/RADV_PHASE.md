@@ -711,3 +711,63 @@ targeted rerun of every case main-1 and merged-1 did not pass
 VK_EXT_mesh_shader requires taskShader as well as meshShader. So mesh shaders
 went back behind RADV_PS5_MESH (ps5-port b0a175c) until task shaders run; the
 publish ring and the draw records stay, as task shaders will need them.
+
+## 2026-09-28 — task shaders on the graphics ring
+
+VK_EXT_mesh_shader requires taskShader, and RADV runs task shaders on an
+asynchronous compute queue with the CP's task and mesh dispatch packets: the
+PS5 has neither in use (the compute queue is the backlog item; the CP already
+refused DISPATCH_MESH_INDIRECT_MULTI). ps5-task runs them on the graphics
+ring instead (radv_task_emulated). A task draw goes in chunks of as many task
+workgroups as the task rings hold at the pipeline's payload size (16 KiB
+payloads: 4,096; small ones up to 65,536): the task shader as a compute
+dispatch fed the graphics state, its workgroups in one dimension from the
+chunk's first, writing the task rings as ordinary buffers of the device's;
+the draw records prepass from the draw ring's entries to the mesh
+workgroups' records, whose index in the packet is their task workgroup's ring
+entry; and the draw of those records. The next chunk waits for the mesh
+shaders. An indirect draw's chunks are set up in memory by a compute pass;
+all the chunks the task workgroup limit (2^22) allows are recorded, those
+past a draw's workgroups empty.
+
+One bug on the way: the chunk's records prepass cleared RADV's "compute
+pipeline dirty" flag, so the next chunk's task dispatch, which writes the
+compute registers itself, left the prepass pipeline looking bound, and the
+second prepass ran the task shader's program on its own arguments (a GPU
+fault reading a null 32-bit pointer). The task dispatch now marks the compute
+state dirty.
+
+The smoke title's task payloads: 8,192 task workgroups each fill a 16 KiB
+payload for two mesh workgroups that paint their cells from its first and
+last words, across two chunks, in one draw and in two indirect ones; every
+cell names its task and mesh workgroup. The smoke title: 100 of 100.
+
+The CTS on it: taskmesh-1 ran every main-1 case naming mesh or task shaders
+(83,681) with the emulation on: 23,057 pass, 12 quality warnings and no
+failure. Its four crashes were descriptor heap cases: the emulated dispatch
+emitted only the heaps still marked dirty, which the draw's own flush had
+cleared; it now emits every valid set and heap (69d7d30, task-heap-1: 4
+pass). The same helper gave geometry shaders run as compute the dynamic
+buffers they never had (a latent bug: with every geometry shader forced
+through compute, the 960 dynamic buffer geometry cases crashed on an
+assertion, gs-dyn-before-1, and now pass, gs-dyn-after-1). Task and mesh
+shaders are reported since ps5-port 179f88d; the smoke title passes 100 of
+100 with defaults.
+
+## 2026-09-28 — ray tracing group handles captured and replayed
+
+The last feature upstream reports on this GPU that the port did not, for a
+reason of its own: rayTracingPipelineShaderGroupHandleCaptureReplay. The
+group handles capture whole shader arenas, which must lie in the shaders'
+32-bit window, where the kernel places mappings; a captured address could
+be taken by the time it is replayed. The PS5 winsys now reserves the top
+256 MiB of the window at initialisation and places the replayable window
+buffers there itself, captures from the top down and replays at their
+captured addresses (ps5-port ecf916d). rt-replay-1: the 165 cases of
+merged-1 that asked for it pass; 17 need acceleration structure host
+commands or mixed capture and replay, which upstream does not offer on this
+GPU either. What upstream reports and the port does not is now all hardware
+(variable-rate shading, barycentrics, the mixed-float dot product),
+exported-function limits (device-generated commands, performance queries,
+shader resource residency) and Linux (DRM, dma-buf, file descriptors,
+display control).

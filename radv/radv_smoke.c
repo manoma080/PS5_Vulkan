@@ -88,6 +88,7 @@ check(bool ok, const char *what)
    X(GetPhysicalDeviceQueueFamilyProperties)                                                       \
    X(GetPhysicalDeviceMemoryProperties)                                                            \
    X(GetPhysicalDeviceFeatures)                                                                    \
+   X(GetPhysicalDeviceFeatures2)                                                                   \
    X(CreateDevice)                                                                                 \
    X(EnumerateDeviceExtensionProperties)                                                           \
    X(GetDeviceProcAddr)
@@ -218,8 +219,10 @@ struct context {
    bool display;
    /* VK_EXT_descriptor_buffer is reported and enabled (test_sparse_timing). */
    bool descriptor_buffer;
-   /* VK_EXT_mesh_shader is reported and its mesh shaders enabled (test_mesh). */
+   /* VK_EXT_mesh_shader is reported and its mesh shaders enabled (test_mesh),
+    * and its task shaders when reported (test_task). */
    bool mesh;
+   bool task;
    /* How render_readback_with records its draw (test_geometry's draw checks):
     * directly by default. Indices are 16-bit. */
    struct {
@@ -2288,8 +2291,17 @@ context_create(struct context *c)
    }
    VkPhysicalDeviceMeshShaderFeaturesEXT mesh = {
       .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT,
-      .meshShader = VK_TRUE,
    };
+   if (c->mesh) {
+      VkPhysicalDeviceFeatures2 query = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &mesh};
+      vkGetPhysicalDeviceFeatures2(c->physical, &query);
+      c->mesh = mesh.meshShader;
+      c->task = mesh.taskShader;
+      mesh.pNext = NULL;
+      mesh.multiviewMeshShader = VK_FALSE;
+      mesh.primitiveFragmentShadingRateMeshShader = VK_FALSE;
+      mesh.meshShaderQueries = VK_FALSE;
+   }
    if (c->mesh) {
       device_extensions[enabled_extensions++] = VK_EXT_MESH_SHADER_EXTENSION_NAME;
       mesh.pNext = features13.pNext;
@@ -2470,6 +2482,78 @@ test_mesh(struct context *c)
    buffer_destroy(c, &readback);
 }
 
+/* Task shaders (radv/shaders/task_payload.task): 8,192 task workgroups, each
+ * filling its 16 KiB payload with its number and launching two mesh workgroups
+ * that paint their 2-pixel cells from its first and last words. The port runs
+ * task shaders in chunks of as many workgroups as its payload ring holds
+ * (4,096 of these), so the draw crosses a chunk; every cell must name its task
+ * and mesh workgroup, and no payload may be torn. */
+static bool
+task_payload_check(const char *what, const struct buffer *readback)
+{
+   const uint8_t *pixels = readback->map;
+   uint32_t wrong = 0, torn = 0;
+   for (uint32_t cell = 0; cell < 128 * 128; cell++) {
+      const uint32_t task = cell / 2, workgroup = cell % 2;
+      const uint32_t x = (cell % 128) * 2, y = (cell / 128) * 2;
+      const uint8_t *p = pixels + (y * TARGET_SIZE + x) * 4;
+      const uint8_t expected[4] = {task & 255, (task >> 8) | (workgroup << 7), 0, 255};
+      torn += p[2] == 255;
+      wrong += memcmp(p, expected, 4) != 0;
+   }
+   char label[160];
+   snprintf(label, sizeof(label), "%s: 8192 task workgroups' payloads reach their 16384 mesh workgroups", what);
+   const bool ok = wrong == 0;
+   if (!ok)
+      report("%s: %u cells wrong, %u from torn payloads", what, wrong, torn);
+   check(ok, label);
+   return ok;
+}
+
+static void
+test_task(struct context *c)
+{
+   struct buffer readback = {0}, args = {0};
+   if (!buffer_create(c, TARGET_SIZE * TARGET_SIZE * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT, &readback) ||
+       !buffer_create(c, 2 * sizeof(VkDrawMeshTasksIndirectCommandEXT), VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, &args)) {
+      check(false, "task: buffers");
+      return;
+   }
+   VkShaderModule task = shader(c, radv_smoke_task_payload_task, sizeof(radv_smoke_task_payload_task));
+   VkShaderModule mesh = shader(c, radv_smoke_mesh_payload_mesh, sizeof(radv_smoke_mesh_payload_mesh));
+   VkShaderModule frag = shader(c, radv_smoke_mesh_colour_frag, sizeof(radv_smoke_mesh_colour_frag));
+   const VkPipelineShaderStageCreateInfo stages[3] = {
+      stage_info(VK_SHADER_STAGE_TASK_BIT_EXT, task),
+      stage_info(VK_SHADER_STAGE_MESH_BIT_EXT, mesh),
+      stage_info(VK_SHADER_STAGE_FRAGMENT_BIT, frag),
+   };
+
+   c->draw.mode = DRAW_MESH;
+   c->draw.groups[0] = 128;
+   c->draw.groups[1] = 64;
+   c->draw.groups[2] = 1;
+   if (render_readback_with(c, "task payloads, one draw", stages, 3, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, 0, 0,
+                            &readback, VK_NULL_HANDLE, NULL))
+      task_payload_check("task payloads, one draw", &readback);
+
+   VkDrawMeshTasksIndirectCommandEXT *const commands = args.map;
+   commands[0] = (VkDrawMeshTasksIndirectCommandEXT){128, 32, 1};
+   commands[1] = commands[0];
+   c->draw.mode = DRAW_MESH_INDIRECT;
+   c->draw.args = args.buffer;
+   c->draw.max_draws = 2;
+   if (render_readback_with(c, "task payloads, two indirect draws", stages, 3, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+                            0, 0, &readback, VK_NULL_HANDLE, NULL))
+      task_payload_check("task payloads, two indirect draws", &readback);
+
+   memset(&c->draw, 0, sizeof(c->draw));
+   vkDestroyShaderModule(c->device, task, NULL);
+   vkDestroyShaderModule(c->device, mesh, NULL);
+   vkDestroyShaderModule(c->device, frag, NULL);
+   buffer_destroy(c, &args);
+   buffer_destroy(c, &readback);
+}
+
 /* The external host memory probe (docs/CTS_GAPS.md, VK_EXT_external_memory_host):
  * whether the GPU reaches a title's own anonymous (flexible) memory once
  * sceKernelMprotect grants it GPU access, at the address the CPU uses, as the
@@ -2564,6 +2648,10 @@ main(void)
       }
       fclose(env);
    }
+   /* RADV_SMOKE_STDERR names a file for standard error instead of klog, for
+    * output too large for it (RADV_DEBUG=shaders). */
+   if (getenv("RADV_SMOKE_STDERR") && freopen(getenv("RADV_SMOKE_STDERR"), "w", stderr))
+      setvbuf(stderr, NULL, _IOLBF, 0);
    results = fopen(RESULTS_PATH, "w");
    report("RADV smoke test starts");
    /* The line below arrives in klog prefixed "[radv-smoke:stderr]" when the
@@ -2572,7 +2660,14 @@ main(void)
    fprintf(stderr, "standard error reaches klog\n");
   test_fp_state();
   struct context c = {0};
-   if (context_create(&c)) {
+   /* RADV_SMOKE_ONLY=task runs the task shader checks alone, for a driver
+    * debugging them (RADV_DEBUG=shaders dumps every shader compiled). */
+   const bool ready = context_create(&c);
+   const char *const only = getenv("RADV_SMOKE_ONLY");
+   if (ready && only && strcmp(only, "task") == 0) {
+      if (c.task)
+         test_task(&c);
+   } else if (ready) {
       test_fill(&c);
       test_copy(&c);
       test_compute(&c);
@@ -2600,6 +2695,10 @@ main(void)
          test_mesh(&c);
       else
          report("mesh: VK_EXT_mesh_shader is not reported; its checks are skipped");
+      if (c.task)
+         test_task(&c);
+      else
+         report("task: task shaders are not reported; their checks are skipped");
       if (getenv("RADV_SMOKE_SPARSE_TIMING") && supported_sparse_binding(&c))
          test_sparse_timing(&c);
       if (c.display)

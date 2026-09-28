@@ -55,7 +55,7 @@ for shader in tess.vert tess.tesc tess_coord.tese tess_patch.tese tess_varying.v
     cat "$work/gen/smoke_$name.h" >> "$work/gen/radv_smoke_shaders.h.tmp"
 done
 # Mesh shaders need SPIR-V 1.4.
-for shader in mesh_ticket.mesh mesh_colour.frag; do
+for shader in mesh_ticket.mesh mesh_colour.frag task_payload.task mesh_payload.mesh; do
     name=${shader//./_}
     glslangValidator -V --target-env vulkan1.2 --vn "radv_smoke_$name" \
         "$root/radv/shaders/$shader" -o "$work/gen/smoke_$name.h" > /dev/null
