@@ -899,3 +899,15 @@ The Mesa fork's work is on its `main` branch: `ps5-port` and the feature
 branches were merged into it, and `tools/build-radv.sh` exports the pinned
 revision from there. vkQuake and PS5 RetroArch (v0.5.0-alpha.5) ship on the
 release archive of cedb774.
+
+## 2026-09-28 — full-1 interrupted once, by me
+
+At 1,608,518 cases (758,443 pass, 850,066 not supported, 8 quality warnings)
+I closed the CTS title in the middle of batch 53 to use the console for a
+PS5 RetroArch fix: the batch's sparse descriptor-buffer cases ran at about
+two a second, so it had some two hours left. The runner recorded the case it
+was in,
+`dEQP-VK.binding_model.descriptor_buffer.sparse_residency_buffer.push_template.graphics_tese_sets1_push_set0`,
+as Crash ("the run exited (runner)"). That record is the interruption, not a
+result: the case goes in the targeted rerun of every non-passing case. The
+run resumes from the next case.
