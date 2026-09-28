@@ -68,7 +68,7 @@ radv_link_recipe() {
     for name in arc4random arc4random_buf arc4random_uniform gmtime_r statvfs fstatvfs \
             futimens clock_nanosleep getaddrinfo freeaddrinfo if_nameindex if_freenameindex \
             opendir fdopendir readdir rewinddir dirfd closedir nl_langinfo nl_langinfo_l getpwuid_r \
-            posix_fallocate \
+            posix_fallocate access \
             openat unlinkat fchmodat fstatat mkdirat renameat memfd_create; do
         radv_link_flags+=("--defsym=$name=ps5_$name")
     done

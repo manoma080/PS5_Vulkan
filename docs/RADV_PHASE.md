@@ -798,6 +798,14 @@ an empty cache; profiling it on the console found two causes:
   lookup now skips parts that are not there, and parts are made by writes.
   Mesa's 29 cache tests pass on the host with the change.
 
+Profiling also showed that a title's sandbox refuses access() for every
+path, existing or not (EPERM), while stat() answers. The cache now asks
+stat() whether a part exists. The platform layer's ps5_access (PS5_PayloadSDK
+489467e) answers from stat() and open(), and tools/radv-link.sh binds
+access to it, for Mesa's own callers (the Vulkan trace trigger and file
+notification). The smoke test checks it and the cache folder's mode on the
+console.
+
 vkQuake, release archive at 884f954: first present 3.83 s after start from an
 empty cache (pipelines 0.96 s, against 0.62 s with no cache at all), 2.71 s
 with it filled (pipelines 0.14 s), and the demo loop at 119.88 fps. The

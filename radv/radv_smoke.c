@@ -20,6 +20,7 @@
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <errno.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,6 +32,9 @@
 VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vk_icdGetInstanceProcAddr(VkInstance instance, const char *name);
 
 #if defined(__PROSPERO__)
+#include <sys/stat.h>
+#include <unistd.h>
+
 #define RESULTS_PATH "/app0/radv-smoke.txt"
 /* libkernel's klog writer: a title's stderr does not reach klog, and klog is
  * what tools/run-title.py watches for the run's end. */
@@ -1293,6 +1297,24 @@ test_fp_state(void)
    check((mxcsr & ~0x3fu) == 0x1f80 && made && (thread_value & ~0x3fu) == 0x1f80,
          "fp state: main and a new thread run with IEEE denormals (MXCSR 0x1f80)");
 }
+
+#if defined(__PROSPERO__)
+/* A title's sandbox refuses access() for every path; the platform's
+ * ps5_access, bound in its place, answers from stat() and open(). RADV's
+ * shader cache makes its folders in the title's own, open to FTP (0777). */
+static void
+test_title_files(void)
+{
+   const bool found = access("/app0", F_OK) == 0 && access(RESULTS_PATH, R_OK | W_OK) == 0;
+   errno = 0;
+   const bool missing = access("/app0/no-such-file", F_OK) == -1 && errno == ENOENT;
+   check(found && missing, "files: access answers in the title's folder");
+   struct stat status;
+   const bool cache = stat("/app0/radv-shader-cache/mesa_shader_cache_db", &status) == 0 &&
+                      S_ISDIR(status.st_mode) && (status.st_mode & 0777) == 0777;
+   check(cache, "files: RADV's shader cache is in /app0/radv-shader-cache, open to FTP");
+}
+#endif
 
 /* One quad patch over the whole target, its evaluation positions taken from
  * the tessellation coordinates alone or from the control points the control
@@ -2663,6 +2685,10 @@ main(void)
    /* RADV_SMOKE_ONLY=task runs the task shader checks alone, for a driver
     * debugging them (RADV_DEBUG=shaders dumps every shader compiled). */
    const bool ready = context_create(&c);
+#if defined(__PROSPERO__)
+   if (ready)
+      test_title_files();
+#endif
    const char *const only = getenv("RADV_SMOKE_ONLY");
    if (ready && only && strcmp(only, "task") == 0) {
       if (c.task)
