@@ -178,21 +178,53 @@ constants now go to the vertex stage too while such a pipeline is bound
 (PS5_Mesa ps5-gs-compute b26797e). Run gsc-pc-gate-1: the 9 pass, and the
 8,885 cases of gsc-regress-1 are unchanged.
 
+## Slice 5, tessellation (2026-09-27)
+
+A tessellated geometry shader amplifying past one NGG subgroup, or one with
+transform feedback, now runs its tessellation as compute too, the way Asahi
+does with poly (Mesa fork ps5-gs-tess):
+
+- a setup pass sizes the draw's patches (whole patches only) and allocates,
+  from the command buffer's heap, the vertex outputs, the control shader's
+  outputs and the tessellator's per-patch buffers;
+- the vertex shader, then the control shader (one workgroup per patch,
+  `poly_nir_lower_tcs`) run as compute;
+- poly's tessellator (the D3D11 reference tessellator) counts each patch's
+  indices, a prefix sum places them and allocates the index buffer, and it
+  writes them with the domain points;
+- the evaluation shader (`poly_nir_lower_tes`) is the vertex stage of the
+  geometry shader's passes, over a draw of the tessellator's output.
+
+Shader objects take the same route: tessellation control and evaluation
+objects keep their passes and the part of the tessellation state their stage
+fixes, and a draw that binds them with such a geometry object assembles
+them. With multiview, the passes run once per view with the view in their
+draw block, and each view rasterizes alone.
+
+Three things came up on the way. vtn_bindgen2 lowered every indirect access
+of a large scratch array to an if-else tree, which took the quad tessellator
+from 6,764 instructions to about three million and the generated bindings
+past a gigabyte: only arrays of up to 16 elements get trees now. poly's heap
+allocations abort when the heap is full, which RADV's shaders cannot:
+`POLY_HEAP_GUARD` gives such an allocation a guard behind the heap, and the
+draw draws nothing. And a GS reading gl_ViewIndex in a pass had no view to
+read.
+
+s5-gate-1 (tessellation.geometry_interaction whole and the shader object
+stream cases): 24 pass, 2 not supported (extendedDynamicState3RasterizationStream,
+which upstream RADV does not report here either). The two
+tessellation.geometry_interaction.limits cases that lost the device pass.
+
 ## Open
 
-- **Shader objects.** A geometry shader object with transform feedback
-  still takes the NGG path and captures nothing. No CTS case covers it (the
-  8 device-generated-commands cases that would are not supported), but the
-  capture must work: it needs the compute passes built when the draw binds
-  its vertex and geometry objects.
-- **Dynamic vertex input** (VK_EXT_vertex_input_dynamic_state) with such a
-  geometry shader: the vertex shader would need a prolog, which the compute
-  vertex pass has no equivalent of yet, so it also falls back to NGG.
+- **Shader objects** and **dynamic vertex input**: done on ps5-gs-objects
+  (the vertex pass compiled at the draw for its vertex input), merged.
 - **Pipeline statistics** during these draws: the compute passes count as
   compute invocations, and the geometry shader's invocations and primitives
   go to a sink.
-- **Slice 5**, tessellation with a geometry shader amplifying past one NGG
-  subgroup (tessellation.geometry_interaction.limits).
+- **Slice 5**: done on ps5-gs-tess, above. A geometry shader's
+  gl_PrimitiveIDIn after tessellation counts the tessellator's primitives
+  across the draw's instances, where Vulkan resets it per instance.
 - Merging the branch into ps5-port once main-1 is done, then rerunning the
   groups it touches.
 
