@@ -862,3 +862,24 @@ windows after boot are full. vkQuake's start-up is unchanged (its pipelines
 compile on fewer threads), the smoke test passes 102 of 102, and RetroArch's
 battery and soak pass again. Dolphin's boot with an empty cache still loses
 17% and 8% of its first two windows to its ubershaders.
+
+## 2026-09-28 — The shader cache's reads: an exclusive mode
+
+With the cache filled, PPSSPP's pipelines still took a median 11.3 ms each.
+Timed on the console, a read of the cache's database spent 4.8 ms waiting
+for the part's lock behind other threads' reads, 1.6 ms reopening and
+relocking the files and 0.6 ms writing the entry's access time back, against
+0.01 ms reading the entry. ps5-port cedb774 adds an exclusive mode to Mesa's
+database, the default on the PS5, where a title's cache is its own: each part
+is opened and locked once, accesses skip the reopening, relocking and
+rereading, and access times are written in batches. A first version made
+the streams unbuffered; the console's libc then read a byte a system call,
+and pipelines took seconds, so the streams stay buffered and are reopened
+after a compaction instead.
+
+With the cache filled, on the console: PPSSPP's pipeline creation 1,419 ms to
+29 ms, median 0.3 ms; vkQuake's pipelines at start 0.14 s to 0.007 s, first
+present 2.44 s. Dolphin with its cache filled (87% and 99% for its first two
+windows) now matches ps5vk's run from an empty cache (86% and 99%); what is
+left is RADV's compile of its ubershaders from an empty cache (83% and 92%),
+which on the host profile is Mesa's own NIR optimisation loop.
