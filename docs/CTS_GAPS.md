@@ -19,6 +19,17 @@ failures, 66 crashes, 26 lost devices, 4 resource errors).
 
 ## Failures
 
+final-targets-1 (2026-09-28, ps5-port b381f60, debug archive) reran every
+case main-1 or merged-1 did not pass, 12,085 of them: 1,750 pass, 10,326 are
+not supported with a reason below (fragment barycentrics 4,856, fragment
+shading rate 4,741, device-generated commands 725, performance queries 4),
+no crash and no lost device. What remained were the eight sparse descriptor
+buffer cases at 32 buffers, which time out in the debug build's NIR
+validation, and dEQP-VK.info.device_mandatory_features, which failed because
+that build reported mesh shaders without task shaders (fixed in b0a175c).
+final-targets-rel-1, those nine on the release archive at b0a175c: 9 pass.
+The table below is how each of main-1's failures got there.
+
 Of main-1's 12,005, 1,435 pass in later runs (fixes made during main-1),
 10,560 belong to features switched off during main-1 (variable-rate shading
 4,701, fragment barycentrics 4,850, capture and replay addresses 1,010), and
