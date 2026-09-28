@@ -100,12 +100,15 @@ What stands on the console (2026-09-28):
   (PS5_RetroArch's `radv` branch): the menu, PPSSPP (God of War: Ghost of
   Sparta), Dolphin (Wind Waker) and LRPS2 (GTA San Andreas) render, at full
   speed once the shader cache is filled, and the PPSSPP and LRPS2 pictures
-  match ps5vk's (Dolphin's was not compared). PPSSPP
-  needed a fix of its own: it used Vulkan 1.2 commands on a 1.1 instance.
-- **Not there yet:** concurrency between queues (in the backlog); RetroArch's
-  release battery on RADV (every core, menu actions, closing and reopening
-  content, a PPSSPP soak) and pipeline compiles that cost no speed, before its
-  cores leave ps5vk.
+  match ps5vk's (Dolphin's was not compared). PPSSPP needed a fix of its own:
+  it used Vulkan 1.2 commands on a 1.1 instance.
+  RetroArch's release battery passes on RADV as it did on ps5vk: every core
+  with a game, closing and reloading content through the Quick Menu, threaded
+  video, and a ten-minute PPSSPP soak.
+- **Not there yet:** concurrency between queues (in the backlog), and
+  pipeline compiles that cost no speed: with an empty shader cache PPSSPP and
+  Dolphin lose up to 0.8% of a 10 s window on RADV. Until then RetroArch's
+  cores stay on ps5vk.
 
 Building it:
 

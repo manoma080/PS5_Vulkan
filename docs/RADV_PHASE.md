@@ -828,3 +828,14 @@ the cores leave ps5vk: pipeline compiles cost PPSSPP 0.7% of one window
 with an empty shader cache, and RetroArch's release battery (every core,
 menu actions, closing and reopening content, a PPSSPP soak) has not run on
 RADV.
+
+## 2026-09-28 — RetroArch's release battery passes on RADV
+
+The checks RetroArch's release passed on ps5vk, on RADV (PS5_RetroArch
+13f1961). Every core with a game (FCEUmm, snes9x, mGBA, Genesis Plus GX,
+FBNeo, PPSSPP, Dolphin, LRPS2), threaded video on for half of them: a pad
+script opened and closed the menu, closed the content through the Quick
+Menu and loaded it again, three driver initialisations a run. PPSSPP ran ten
+minutes with 25 menu toggles. No crash, and the soak's windows were at 98-100%,
+as on ps5vk. What stands between RetroArch and RADV is compile time: with an
+empty shader cache PPSSPP and Dolphin lost 0.8% of one window each.
