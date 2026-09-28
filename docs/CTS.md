@@ -189,7 +189,7 @@ the selection is decided. The first runs and their failures are in
 ## The CTS on the console, against RADV
 
 `deqp-vk` runs on the console as the title PPSA99015, with RADV and its PS5
-winsys linked in. The CTS side is my fork `PS5_VK-GL-CTS` (branch `ps5-port`,
+winsys linked in. The CTS side is my fork `PS5_VK-GL-CTS` (branch `main`,
 the pinned commit plus the PS5 target and build fixes): its `DEQP_TARGET=ps5` platform makes the linked
 driver's `vk_icdGetInstanceProcAddr` the whole loader, reads the arguments from
 `/app0/cts/args.txt` and mirrors every line the CTS prints to klog.

@@ -2,9 +2,9 @@
 
 Append-only, like the M5 phase logs: dated entries, never rewritten. The plan
 is [VULKAN_1_4_PLAN.md](VULKAN_1_4_PLAN.md) (route B); the CTS set-up is in
-[CTS.md](CTS.md). The driver is my Mesa fork `PS5_Mesa` (branch `main`,
-called `ps5-port` in the entries up to 2026-09-28; RADV with a PS5 winsys), the CTS my fork `PS5_VK-GL-CTS` (branch `ps5-port`),
-and the platform pieces are in the payload SDK fork's `platform/`.
+[CTS.md](CTS.md). The driver is my Mesa fork `PS5_Mesa` and the CTS my fork `PS5_VK-GL-CTS`,
+each on its branch `main` (called `ps5-port` in the entries up to
+2026-09-28); the platform pieces are in the payload SDK fork's `platform/`.
 
 ## 2026-09-26 — the CTS runs on the console
 
