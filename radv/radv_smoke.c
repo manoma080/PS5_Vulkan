@@ -127,6 +127,7 @@ check(bool ok, const char *what)
    X(CmdBindPipeline)                                                                              \
    X(CmdBindDescriptorSets)                                                                        \
    X(CmdDispatch)                                                                                  \
+   X(CmdPushConstants)                                                                             \
    X(CmdBeginRendering)                                                                            \
    X(CmdEndRendering)                                                                              \
    X(CmdDraw)                                                                                      \
@@ -1935,6 +1936,81 @@ context_create(struct context *c)
    return vkAllocateCommandBuffers(c->device, &cmd_info, &c->cmd) == VK_SUCCESS;
 }
 
+/* The external host memory probe (docs/CTS_GAPS.md, VK_EXT_external_memory_host):
+ * whether the GPU reaches a title's own anonymous (flexible) memory once
+ * sceKernelMprotect grants it GPU access, at the address the CPU uses, as the
+ * driver's direct memory is. A shader writes 16 KiB through a raw device
+ * address. A GPU fault ends the run, so this check comes last. */
+#if defined(__PROSPERO__)
+int32_t sceKernelMprotect(const void *address, size_t length, int protection);
+#include <sys/mman.h>
+
+static void
+test_host_pointer(struct context *c)
+{
+   enum { WORDS = 4096 };
+   void *const memory = mmap(NULL, WORDS * 4, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
+   if (memory == MAP_FAILED) {
+      check(false, "host pointer: mmap");
+      return;
+   }
+   memset(memory, 0, WORDS * 4);
+   /* CPU read and write, GPU read and write. */
+   const int32_t result = sceKernelMprotect(memory, WORDS * 4, 0x1 | 0x2 | 0x10 | 0x20);
+   report("host pointer: sceKernelMprotect with GPU access returned 0x%08x", (unsigned)result);
+   if (result != 0) {
+      check(false, "host pointer: anonymous memory takes GPU access");
+      munmap(memory, WORDS * 4);
+      return;
+   }
+
+   const VkPushConstantRange range = {.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .size = 12};
+   const VkPipelineLayoutCreateInfo layout_info = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+      .pushConstantRangeCount = 1,
+      .pPushConstantRanges = &range,
+   };
+   VkPipelineLayout layout = VK_NULL_HANDLE;
+   VkPipeline pipeline = VK_NULL_HANDLE;
+   VkShaderModule module = shader(c, radv_smoke_ptr_write_comp, sizeof(radv_smoke_ptr_write_comp));
+   bool ok = module && vkCreatePipelineLayout(c->device, &layout_info, NULL, &layout) == VK_SUCCESS;
+   const VkComputePipelineCreateInfo pipeline_info = {
+      .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+      .stage =
+         {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+            .module = module,
+            .pName = "main",
+         },
+      .layout = layout,
+   };
+   ok = ok && vkCreateComputePipelines(c->device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, &pipeline) == VK_SUCCESS;
+   if (ok) {
+      struct {
+         uint64_t address;
+         uint32_t value;
+      } __attribute__((packed)) push = {(uint64_t)(uintptr_t)memory, 0x5a000000u};
+      ok = begin(c);
+      vkCmdBindPipeline(c->cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+      vkCmdPushConstants(c->cmd, layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
+      vkCmdDispatch(c->cmd, WORDS / 64, 1, 1);
+      ok = ok && submit_and_wait(c, "host pointer");
+   }
+   unsigned wrong = 0;
+   const volatile uint32_t *const words = memory;
+   for (uint32_t i = 0; ok && i < WORDS; i++)
+      wrong += words[i] != 0x5a000000u + i;
+   if (ok && wrong)
+      report("host pointer: %u of %u words wrong, the first reads 0x%08x", wrong, WORDS, words[0]);
+   check(ok && wrong == 0, "host pointer: a shader writes a title's anonymous memory through its address");
+   vkDestroyPipeline(c->device, pipeline, NULL);
+   vkDestroyPipelineLayout(c->device, layout, NULL);
+   vkDestroyShaderModule(c->device, module, NULL);
+   munmap(memory, WORDS * 4);
+}
+#endif
+
 int
 main(void)
 {
@@ -1986,6 +2062,11 @@ main(void)
          report("shading rate: VK_KHR_fragment_shading_rate is not reported; its checks are skipped");
       if (c.acceleration_structure)
          test_acceleration_structure(&c);
+#if defined(__PROSPERO__)
+      /* Last: a GPU fault ends the run. It needs buffer device addresses. */
+      if (c.acceleration_structure)
+         test_host_pointer(&c);
+#endif
    }
    if (c.device) {
       vkDeviceWaitIdle(c.device);
