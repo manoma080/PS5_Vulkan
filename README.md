@@ -742,6 +742,15 @@ This project is independent and is not affiliated with or endorsed by Sony
 Interactive Entertainment. "PlayStation" and "PS5" are trademarks of Sony
 Interactive Entertainment.
 
+Vulkan and the Vulkan logo are registered trademarks of the Khronos Group Inc.
+This project is not a Khronos Adopter, and neither driver here is a conformant
+Vulkan implementation or appears in Khronos's list of conformant products
+([khronos.org/conformance](https://www.khronos.org/conformance/)). "Vulkan 1.4"
+names the API version RADV reports; RADV's `conformanceVersion` on the PS5 stays
+0.0.0.0. The CTS runs recorded here are my own runs on one console, not a
+conformance submission, and passing the CTS would not by itself make either
+driver conformant: that takes a submission Khronos accepts.
+
 Built on the work of the [ps5-payload-dev](https://github.com/ps5-payload-dev)
 community, [ps5-opengl](https://github.com/blackbearreloaded/ps5-opengl), and
 the [Mesa](https://gitlab.freedesktop.org/mesa/mesa) and
