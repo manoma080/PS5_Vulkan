@@ -4,17 +4,18 @@ Volatile by design. Keep this file under about 120 lines. Specifications are in
 `docs/VULKAN_PROBE_PLAN.md`; measurements are in `docs/M5_PHASE_C.md` and
 `docs/HARDWARE_FINDINGS.md`.
 
-_Updated: 2026-09-28_
+_Updated: 2026-09-29_
 
 ## Now
 **Vulkan 1.4 and the CTS: route B is under way** ([VULKAN_1_4_PLAN.md](VULKAN_1_4_PLAN.md)).
 RADV runs on the console with a PS5 winsys, and CTS 1.4.6.2 runs there as
 PPSA99015; findings and fixes are in [RADV_PHASE.md](RADV_PHASE.md). Every
 item in [CTS_GAPS.md](CTS_GAPS.md) is closed by a targeted run, and the
-second full run (full-1, RADV ecf916d) is in progress: no failure at 1,608,518
-of 2,919,757 cases. Its one Crash record is mine: I closed the CTS title mid-case
-to use the console (RADV_PHASE.md, 2026-09-28), and the targeted rerun
-settles that case. The Mesa fork's work is all on its `main` branch.
+second full run (full-1, RADV ecf916d) is complete with no failure:
+1,569,390 pass, 1,350,306 not supported, 60 quality warnings and one Crash
+record, mine (I closed the CTS title mid-case to use the console;
+RADV_PHASE.md, 2026-09-29). Next: the targeted rerun of those 61 cases, then
+the not-supported features, before any further full run. The Mesa fork's work is all on its `main` branch.
 vkQuake and PS5 RetroArch (v0.5.0-alpha.5) ship on RADV's release archive
 (cedb774), with the on-disk shader cache in its exclusive mode; ps5vk is
 their `PS5_VULKAN_DRIVER=ps5vk` build option. Open: concurrency between

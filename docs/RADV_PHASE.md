@@ -911,3 +911,29 @@ was in,
 as Crash ("the run exited (runner)"). That record is the interruption, not a
 result: the case goes in the targeted rerun of every non-passing case. The
 run resumes from the next case.
+
+## 2026-09-29 — full-1 complete: no failure
+
+The second full run of the pinned CTS on RADV ecf916d finished at 03:25 (every
+mustpass group of main-1, 2,919,757 cases, 120 batches):
+
+| Result | Cases |
+| --- | --- |
+| Pass | 1,569,390 |
+| Not supported | 1,350,306 |
+| Quality warning | 60 |
+| Crash | 1 (my interruption, above) |
+| Fail | 0 |
+
+The quality warnings are four families:
+
+| Group | Cases |
+| --- | --- |
+| `pipeline.pipeline_library.shader_module_identifier` | 33 |
+| `pipeline.{monolithic,pipeline_library,fast_linked_library}.creation_feedback` | 18 |
+| `memory.map_placed.{normal_,}unmap_reserve` | 8 |
+| `pipeline.monolithic.pipeline_binary` | 1 |
+
+Next, before any further full run: the targeted rerun of these 61 cases, and
+the not-supported features, each either implemented for real or confirmed as
+a genuine absence of the hardware or the platform.
