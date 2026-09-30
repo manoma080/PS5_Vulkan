@@ -46,6 +46,17 @@ for word in words:
         print(word if os.path.isabs(word) else os.path.join(base, word))
 ' "$cts_build")
 (( ${#cts_inputs[@]} > 10 )) || { echo "could not read deqp-vk's link inputs" >&2; exit 2; }
+# RADV brings zlib (1.3.1, its shader cache's) since the on-disk cache: the
+# CTS's own copy (1.2.13) would define every zlib function twice, so the CTS
+# and its libpng take RADV's, which has the same interface.
+radv_symbols=$(llvm-nm --defined-only "$archive" 2>/dev/null || true)
+if grep -q " T inflate$" <<< "$radv_symbols"; then
+    kept=()
+    for input in "${cts_inputs[@]}"; do
+        [[ $input == */external/zlib/libz.a ]] || kept+=("$input")
+    done
+    cts_inputs=("${kept[@]}")
+fi
 
 cc -std=c++20 -O2 -fno-exceptions -fno-rtti -c "$native/app_crt.cpp" -o "$work/obj/app_crt.o"
 stub() {
