@@ -937,3 +937,44 @@ The quality warnings are four families:
 Next, before any further full run: the targeted rerun of these 61 cases, and
 the not-supported features, each either implemented for real or confirmed as
 a genuine absence of the hardware or the platform.
+
+## 2026-09-30 — threaded recording's gate (threaded-1)
+
+RADV's threaded recording layer (RADV_THREADED_RECORDING=1: a worker thread
+records what the application's vkCmd* calls queue) ran the command-recording
+groups on the debug archive: api, draw, renderpasses, dynamic-state,
+query-pool, conditional-rendering, multiview, rasterization, clipping,
+fragment-operations, geometry and tessellation, 474,440 cases.
+
+| Result | Cases |
+| --- | --- |
+| Pass | 212,979 |
+| Not supported | 261,457 |
+| Quality warning | 2 (`api.object_management.alloc_callback_fail.descriptor_set_layout_{empty,single}`, as in api-1 and api-2) |
+| Crash | 1 (fixed during the run, below) |
+| Fail | 1 (`api.driver_properties.conformance_version`: the port reports 0.0.0.0 until a release passes, CTS_GAPS.md) |
+
+The run found three faults in the layer, fixed in the Mesa fork as it went
+(the run was paused, the fix checked with targeted runs, and the rest of the
+run done on the fixed build; batches.log names each build):
+
+- `api.command_buffers.pool_reset_reuse` and `recording_to_invalid` crashed:
+  a reset, begin or free recorded the commands still queued, which named
+  objects the test had destroyed meanwhile, as the specification allows while
+  a command buffer records (it becomes invalid). Resets, begins and frees now
+  drop what is queued, and every device-level destroy and free first waits
+  for the batches handed to the worker (8c77e8b9c0d). `api.command_buffers.*`
+  with the layer: 128 pass, 1 not supported.
+- `api.device_init.create_instance_device_intentional_alloc_fail.basic`
+  crashed: the worker's allocation failed before the shader arenas were
+  initialised and radv_destroy_device walked their list. The worker now
+  starts after them (0b2d6d1a61d). `api.device_init.*` with the layer: 226
+  pass, 8 not supported, as without it.
+
+Against the runs without the layer: full-1's 146,645 cases of the same groups
+(draw to tessellation) have the same status in every case; against api-2
+(2026-09-26) the api cases differ only by features since claimed or
+withdrawn (4,587 not supported to pass; 370 pass to not supported, all
+`api.info.unsupported_image_usage` for VK_KHR_fragment_shading_rate, which
+has_vrs has gated since 2026-09-27) and the two faults above. The layer may
+now be turned on for a title; it stays off by default in the driver.
