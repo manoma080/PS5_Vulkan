@@ -954,7 +954,7 @@ fragment-operations, geometry and tessellation, 474,440 cases.
 | Crash | 1 (fixed during the run, below) |
 | Fail | 1 (`api.driver_properties.conformance_version`: the port reports 0.0.0.0 until a release passes, CTS_GAPS.md) |
 
-The run found three faults in the layer, fixed in the Mesa fork as it went
+The run found two faults in the layer (three failing cases), fixed in the Mesa fork as it went
 (the run was paused, the fix checked with targeted runs, and the rest of the
 run done on the fixed build; batches.log names each build):
 
