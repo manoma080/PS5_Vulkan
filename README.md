@@ -14,8 +14,8 @@ GPUs, built from my Mesa fork with a PS5 winsys that allocates, submits and
 presents through the console's exported AGC, kernel and VideoOut functions
 ([The RADV port](#the-radv-port)). **ps5vk**, the first driver, is a Mesa-derived
 Vulkan 1.1 implementation that programs AGC and VideoOut itself. vkQuake and
-PS5 RetroArch have moved to RADV; ps5vk stays their `PS5_VULKAN_DRIVER=ps5vk`
-build option. It is a
+PS5 RetroArch have moved to RADV, and ProsperoEden's Vulkan renderer runs on it;
+ps5vk stays vkQuake's and RetroArch's `PS5_VULKAN_DRIVER=ps5vk` build option. It is a
 companion to the [PS5 OpenGL SDK](https://github.com/blackbearreloaded/ps5-opengl)
 (release 0.3.0, adapted into `.deps/native/opengl-sdk` by
 [`tools/adapt-opengl-sdk.sh`](tools/adapt-opengl-sdk.sh)) and is developed with
@@ -71,23 +71,25 @@ is the round-by-round record.
   PS5 GPU
 ```
 
-What stands on the console (2026-09-28):
+What stands on the console (2026-10-01, PS5 Mesa `0b2d6d1`):
 
-- **The full CTS runs on the console.** The first full run of the pinned
-  1.4 CTS (vulkan-cts-1.4.6.2, my fork `../PS5_VK-GL-CTS`, title PPSA99015)
-  ended with 2,786,062 cases: 1,098,388 pass, 12,005 did not pass and 1,675,626
-  were not supported. Since then the failures have been fixed or traced
-  (10,560 of them belong to features switched off during that run: variable-rate
-  shading and fragment barycentrics, which the hardware lacks, and capture and
-  replay addresses, since implemented), and the port gained compute and transfer queue
-  families (on the graphics ring), host-cached memory types, tessellation and
-  geometry shaders run as compute where the fixed-function block cannot,
-  ray queries and pipelines, sparse resources, calibrated timestamps and the
-  VideoOut swapchain, each proved by a targeted CTS run of the groups behind it
-  ([docs/CTS_GAPS.md](docs/CTS_GAPS.md)). With every item there closed, the
-  second full run, full-1, started on 2026-09-28 on RADV `ecf916d`: 560,000
-  of its 2,919,757 cases have run, and none has failed (228,553 pass, 8
-  quality warnings, the rest not supported).
+- **The full CTS runs on the console, and its second full run had no
+  failure.** The first full run of the pinned 1.4 CTS (vulkan-cts-1.4.6.2, my
+  fork `../PS5_VK-GL-CTS`, title PPSA99015), main-1, ended on 2026-09-27 with
+  2,786,062 cases: 1,098,388 pass, 12,005 did not pass and 1,675,626 were not
+  supported. Every case it did not pass was then fixed or traced, and the port
+  gained compute and transfer queue families (on the graphics ring),
+  host-cached memory types, tessellation and geometry shaders run as compute
+  where the fixed-function block cannot, ray queries and pipelines, sparse
+  resources, calibrated timestamps and the VideoOut swapchain, each proved by a
+  targeted CTS run of the groups behind it
+  ([docs/CTS_GAPS.md](docs/CTS_GAPS.md)). The second full run, full-1, on RADV
+  `ecf916d`, finished on 2026-09-29: of 2,919,757 cases, **1,569,390 pass,
+  0 fail**, 1,350,306 are not supported and 60 are quality warnings (one more
+  case is recorded as a crash because I closed the CTS title mid-batch).
+  Before any further full run, those 61 cases get a targeted rerun, and each
+  feature reported as not supported is either implemented for real or
+  confirmed as absent from the hardware or the platform.
 - **vkQuake ships on RADV.** Since 2026-09-28 the vkQuake title builds against
   the release archive by default and runs its demo loop at 119.88 fps, one
   vblank a frame, in the display's 120 Hz mode (PS5_vkQuake
@@ -97,19 +99,37 @@ What stands on the console (2026-09-28):
   empty cache and 2.44 s with it filled, of which the pipelines take 0.01 s.
   The rest, device and swapchain start-up against ps5vk's 0.55–0.77 s to a
   first frame, is still open.
+- **RetroArch ships on RADV.** [PS5 RetroArch](https://github.com/mihawk-99/PS5_RetroArch)
+  moved to RADV with v0.5.0-alpha.5 (2026-09-28). Its current release,
+  v0.5.6-alpha.5 (2026-10-01), links PS5 Mesa `0b2d6d1` and carries 15 cores.
+  Six of them render through Vulkan on RADV: PPSSPP, Dolphin, LRPS2, Beetle
+  PSX HW, Mupen64Plus-Next (ParaLLEl-RDP) and Azahar, at up to 18× internal
+  resolution. Before the release, every core ran its game on the release
+  build (Beetle Saturn up to its BIOS check): boot, the menu, Close Content and
+  a reload, at full speed before and after, with no crash. PPSSPP needed a fix of its own: it used Vulkan 1.2
+  commands on a 1.1 instance.
+- **ProsperoEden's Vulkan renderer runs on RADV.** In my experimental fork of
+  [ProsperoEden](https://github.com/blackbearreloaded/ProsperoEden), the PS5
+  port of the Eden emulator, which I use to benchmark this driver, Mario Kart 8
+  Deluxe (docked) holds 60 fps at 4K with the GPU about 19% busy, and mostly
+  holds 60 at 8K with the GPU about 55% busy.
+- **Submissions cost the submitting thread less.** The suspend point that
+  makes the console start a submission on time used to hold the submitting
+  thread about 0.3 ms a submission, which cost a renderer making 2,000
+  submissions in 10 s (RPCS3's, in my console builds of PS5 RetroArch) 0.5 to
+  0.7 s of every 10 s. A kick thread of the winsys now makes it, and the CPU
+  flush of each submission uses CLFLUSHOPT instead of a serialising CLFLUSH
+  for every line.
+- **Threaded command recording, off by default.** With
+  `RADV_THREADED_RECORDING=1`, a worker thread records what the application's
+  `vkCmd*` calls queue. Its CTS gate, threaded-1 (474,440 cases of the
+  command-recording groups), gives every case the same status as without the
+  layer, after two faults it found were fixed in the fork
+  (docs/RADV_PHASE.md). It stays off until it measures faster in a game.
 - **Mesh and task shaders** are reported since 2026-09-28, though the GPU has
   neither per-primitive parameters nor the CP's task and mesh dispatch
   packets: mesh workgroups go out in parts that share one run's outputs, and
   task shaders run on the graphics ring in chunks (docs/RADV_PHASE.md).
-- **RetroArch ships on RADV.** [PS5 RetroArch](https://github.com/mihawk-99/PS5_RetroArch)
-  v0.5.0-alpha.5 (2026-09-28) is its first release on RADV: the menu, the
-  software cores, PPSSPP (God of War: Ghost of Sparta), Dolphin (Wind Waker)
-  and LRPS2 (GTA San Andreas) render, at full speed once a game has booted,
-  and the PPSSPP and LRPS2 pictures match ps5vk's. PPSSPP needed a fix of its
-  own: it used Vulkan 1.2 commands on a 1.1 instance. RetroArch's release
-  battery passes on RADV as it did on ps5vk: every core with a game, closing
-  and reloading content through the Quick Menu, threaded video, and a
-  ten-minute PPSSPP soak.
 - **The shader cache** is Mesa's cache database (`MESA_DISK_CACHE_DATABASE`)
   in the title's `radv-shader-cache/` folder, keyed by the pinned Mesa revision and open to
   the console's FTP service. On the console it runs in an exclusive mode,
@@ -117,10 +137,12 @@ What stands on the console (2026-09-28):
   locked on every read (docs/RADV_PHASE.md). Shader compiles on several
   threads no longer wait on one heap lock: the payload SDK fork's platform
   heap gives each thread an arena of its own.
-- **Not there yet:** concurrency between queues (in the backlog), and
-  Dolphin's first start of a game with an empty shader cache, which compiles
-  its ubershaders and loses 17% and 8% of its first two 10 s windows on RADV
-  (ps5vk: 14% and 1%).
+- **Not there yet:** conformance itself (`conformanceVersion` stays 0.0.0.0,
+  see above); concurrency between queues, since the compute and transfer
+  families are served from the graphics ring and real asynchronous compute is
+  in the backlog; and Dolphin's first start of a game with an empty shader
+  cache, which compiles its ubershaders and loses 17% and 8% of its first two
+  10 s windows on RADV (ps5vk: 14% and 1%).
 
 Building it:
 
@@ -225,9 +247,10 @@ drivers rely on, and the vkQuake and RetroArch work done on it.
 
 ### ❌ Not yet
 
-- ❌ **No conformance yet.** The console CTS runs on RADV; its second full
-  run (full-1) is in progress, and what the first left open is closed in
-  [docs/CTS_GAPS.md](docs/CTS_GAPS.md). ps5vk's host results are in
+- ❌ **No conformance yet.** The console CTS runs on RADV, and its second full
+  run (full-1) ended with no failure; the targeted rerun of its 61 quality
+  warnings and the review of every not-supported feature come before the next
+  one ([docs/CTS_GAPS.md](docs/CTS_GAPS.md)). ps5vk's host results are in
   [docs/CTS.md](docs/CTS.md).
 - ❌ **Rungs 1.1 → 1.4 on ps5vk.** Superseded: the Vulkan 1.4 device is RADV
   ([The RADV port](#the-radv-port)).
@@ -269,9 +292,10 @@ drivers rely on, and the vkQuake and RetroArch work done on it.
   is publishing application exports from the module writer.
 - ❌ **Occlusion queries are coarse.** One `ZPASS_DONE` count is 16 samples, so
   `occlusionQueryPrecise` is reported false.
-- ❌ **Broad application acceptance is incomplete.** RetroArch, PPSSPP and vkQuake run;
-  vkQuake still needs systematic movement/fire/save/load, all-map and long-soak
-  acceptance. Other applications remain separate compatibility work.
+- ❌ **Broad application acceptance is incomplete.** RetroArch with its six
+  Vulkan cores, vkQuake and ProsperoEden run on RADV; vkQuake still needs
+  systematic movement/fire/save/load, all-map and long-soak acceptance. Other
+  applications remain separate compatibility work.
 
 ### The ladder
 
@@ -287,9 +311,9 @@ drivers rely on, and the vkQuake and RetroArch work done on it.
 | M5 E | The SDK fork's compiler (metadata 14) migrated and re-proven | ✅ migrated and re-proven |
 | — | The console SIGFPE at `jobs/aco-min` | ✅ fixed: the runner's sampled-format table ran a row it never filled in |
 | Rung 1.1–1.4 | ps5vk: one commit a rung, each gated by a CTS subset | superseded by RADV |
-| RADV | Mesa's RADV on a PS5 winsys, Vulkan 1.4, the full CTS on the console | 🔄 second full CTS run in progress; vkQuake and RetroArch ship on it |
+| RADV | Mesa's RADV on a PS5 winsys, Vulkan 1.4, the full CTS on the console | 🔄 second full CTS run with no failure; targeted reruns before the next one; vkQuake and RetroArch ship on it, ProsperoEden runs on it |
 | Phase E1 | CTS-style semantic validation against the advertised set | ❌ recipe written |
-| Real applications | RetroArch ✅ (ps5vk, and RADV since v0.5.0-alpha.5) · PPSSPP, Dolphin and LRPS2 (hardware-rendered) ✅ tested games · vkQuake at up to 120 FPS at 4K, on RADV since 2026-09-28, acceptance 🔄 · other frontends ❌ | 🔄 in progress |
+| Real applications | RetroArch ✅ (ps5vk, and RADV since v0.5.0-alpha.5; v0.5.6-alpha.5 current) · PPSSPP, Dolphin, LRPS2, Beetle PSX HW, ParaLLEl-RDP and Azahar (hardware-rendered) ✅ tested games · vkQuake at up to 120 FPS at 4K, on RADV since 2026-09-28, acceptance 🔄 · ProsperoEden (Eden) on RADV ✅ Mario Kart 8 Deluxe at 4K60 · other frontends ❌ | 🔄 in progress |
 
 ## vkQuake and performance
 
