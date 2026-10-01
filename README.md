@@ -113,6 +113,20 @@ What stands on the console (2026-10-01, PS5 Mesa `0b2d6d1`):
   port of the Eden emulator, which I use to benchmark this driver, the tested
   game (docked) holds 60 fps at 4K with the GPU about 19% busy, and mostly
   holds 60 at 8K with the GPU about 55% busy.
+- **Fifteen Vulkan samples run on RADV, as a test suite.**
+  [PS5 Vulkan Samples](https://github.com/mihawk-99/PS5_VulkanSamples) (PPSA99130),
+  my fork of Sascha Willems' Vulkan examples, links fifteen of them into one title:
+  glTF loading, mipmaps made with blits, PBR with image based lighting, shadow
+  mapping, deferred shading, bloom, MSAA, instancing, indirect draws, compute
+  particles, bindless textures, dynamic rendering, ImGui, mesh shaders and ray
+  queries. On 2026-10-01, on PS5 Mesa `0b2d6d1`, each held 119.9 fps at 3840x2160
+  over a 300-frame test run, and its last frame matched the same frame drawn by the
+  PC's driver (Intel ANV) within 4.5 levels in 255. A test run of every sample
+  belongs beside the CTS after a RADV change. Its first run found a platform gap,
+  not a driver bug: the console's `localeconv()` gives an empty decimal point, and
+  tinygltf's JSON parser read material colours of 0.62 as 0. The payload SDK fork's
+  platform layer now has a C-locale `localeconv` (fa69d00), which
+  `tools/radv-link.sh` binds for a title whose SDK pin has it.
 - **Submissions cost the submitting thread less.** The suspend point that
   makes the console start a submission on time used to hold the submitting
   thread about 0.3 ms a submission, which cost a renderer making 2,000
