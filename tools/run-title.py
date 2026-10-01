@@ -71,14 +71,16 @@ def main():
     parser.add_argument("--fetch", action="append", default=[], help="file in the title folder to download")
     parser.add_argument("--echo", default="", help="regex of klog lines to print while capturing")
     parser.add_argument("--elf", help="the linked ELF (before signing), to symbolise a crash's backtrace")
+    parser.add_argument("--exit-grace", type=float, default=30.0,
+                        help="seconds a title that finished gets to exit on its own before it is closed")
     args = parser.parse_args()
     ended, _output, _fetched = run_title(args.title, args.until, args.timeout, args.output, args.fetch,
-                                         args.echo, args.elf)
+                                         args.echo, args.elf, exit_grace=args.exit_grace)
     return 0 if ended == "finished" else 3
 
 
 def run_title(title, until_pattern, timeout, output=None, fetch=(), echo_pattern="", elf=None, on_line=None,
-              stall=None, progressing=None, activity=None):
+              stall=None, progressing=None, activity=None, exit_grace=30.0):
     """Run a deployed title once; returns (how it ended, the klog file, the
     fetched files). on_line, if given, sees every klog line as it arrives.
     With stall, a run whose klog has had no line of its own (one matching the
@@ -87,7 +89,7 @@ def run_title(title, until_pattern, timeout, output=None, fetch=(), echo_pattern
     stalled title is closed. The system writes klog lines of its own every few
     seconds, so activity is what makes the stall detectable."""
     args = argparse.Namespace(title=title, until=until_pattern, timeout=timeout, output=output,
-                              fetch=list(fetch), echo=echo_pattern, elf=elf)
+                              fetch=list(fetch), echo=echo_pattern, elf=elf, exit_grace=exit_grace)
     if not re.fullmatch(r"PPSA\d{5}", args.title):
         raise SystemExit("TITLE must look like PPSA12345")
 
@@ -177,9 +179,18 @@ def run_title(title, until_pattern, timeout, output=None, fetch=(), echo_pattern
     if args.elf and ended != "finished":
         symbolise(output, args.elf)
 
+    # A finished title is given time to exit on its own (its teardown can take seconds; killing
+    # it mid-teardown, or while it renders at 8K, preceded console power-offs). The kill is
+    # the watchdog for one that never exits.
     status = ps5_console.ps5vkctl_command(settings, "procs", timeout=20)
+    exit_deadline = time.monotonic() + (args.exit_grace if ended == "finished" else 0.0)
+    while " count=0 " not in status + " " and time.monotonic() < exit_deadline:
+        time.sleep(0.5)
+        status = ps5_console.ps5vkctl_command(settings, "procs", timeout=20)
     if " count=0 " not in status + " ":
         print(f"closing: {ps5_console.ps5vkctl_command(settings, f'kill {args.title}', timeout=60)}")
+    elif ended == "finished":
+        print("closing: the title exited on its own")
 
     fetched = []
     for name in args.fetch:
