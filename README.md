@@ -114,8 +114,9 @@ What stands on the console (2026-10-01, PS5 Mesa `0b2d6d1`):
   game (docked) holds 60 fps at 4K with the GPU about 19% busy, and mostly
   holds 60 at 8K with the GPU about 55% busy.
 - **Fifteen Vulkan samples run on RADV, as a test suite.**
-  [PS5 Vulkan Samples](https://github.com/mihawk-99/PS5_VulkanSamples) (PPSA99130),
-  my fork of Sascha Willems' Vulkan examples, links fifteen of them into one title:
+  [PS5 Vulkan Samples](https://github.com/mihawk-99/PS5_VulkanTemplate) (PPSA99130),
+  built by PS5_VulkanTemplate (my fork of Sascha Willems' Vulkan examples, and the
+  foundation new titles are made on), links fifteen of them into one title:
   glTF loading, mipmaps made with blits, PBR with image based lighting, shadow
   mapping, deferred shading, bloom, MSAA, instancing, indirect draws, compute
   particles, bindless textures, dynamic rendering, ImGui, mesh shaders and ray
