@@ -1,6 +1,6 @@
 # R65: every submission starts with primitive restart off
 
-After R64, Wind Waker drew correctly except for thin triangles that ran from
+After R64, the GameCube game drew correctly except for thin triangles that ran from
 the top-left corner of the screen to the minimap, and the minimap's panel
 spilling to the left edge. The same FIFO log played by desktop Dolphin had
 neither. Bisecting it by object range narrowed them to objects 310-319, the

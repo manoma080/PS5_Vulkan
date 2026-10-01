@@ -3,7 +3,7 @@
 An upload into a tiled image (vkCmdCopyBufferToImage into an attachment) is
 written by the CPU at a submission split point, and it placed every texel with
 its own call to the image's map. Dolphin, decoding textures on the CPU, uploads
-a full-screen 1.1 MiB texture sixty times a second in Rogue Leader
+a full-screen 1.1 MiB texture sixty times a second in a GameCube game
 (`cpu_copies=upload:600/675000` a 10 s window), and those per-texel addresses
 were the largest single driver cost on its GPU thread.
 
@@ -19,11 +19,11 @@ a texel at a time.
   each at the offset the driver's own map gives (R91's
   `ps5vk_debug_image_texel_offset`) and that the texel past a region's edge is
   unchanged: 16 of 16. `tools/check-driver.sh` PASS.
-- On the console (title db2f6363, Rogue Leader from boot, Dolphin decoding on the
+- On the console (title db2f6363, the game from boot, Dolphin decoding on the
   CPU): the samples of the GPU thread in tiled uploads fell from 4,897 to 1,350
   over the same 200 s.
 
-Rogue Leader's speed did not move with it (the attract sequence still 71-87% for
+The game's speed did not move with it (the attract sequence still 71-87% for
 stretches): with the uploads cheaper, the GPU thread waits more, not less. The
 game runs with Dolphin's full MMU emulation ("MMU = True, strictly required" in
 Dolphin's GameSettings/GSW.ini) and CPU culling, and in the slow stretches

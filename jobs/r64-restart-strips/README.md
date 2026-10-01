@@ -1,6 +1,6 @@
 # R64: primitive restart is state, and every change of it waits behind an event
 
-Wind Waker's 3D scene drew one huge near-camera surface whose colours changed
+A GameCube game's 3D scene drew one huge near-camera surface whose colours changed
 from frame to frame. A FIFO log of ten frames bisected it to one draw: objects
 0-89 drew pixel-identically to desktop Dolphin, and object 90 added the
 surface. That draw was the first with more than 2048 indices (2138 16-bit
@@ -9,7 +9,7 @@ index, at vertexOffset 271091 and firstIndex 250975). With Dolphin drawing lists
 instead of restart strips, the same prefix drew correctly.
 
 The probe draws the same shape: short strips (3 to 16 vertices, every vertex
-used once and in order, in about Wind Waker's proportions), each ended by
+used once and in order, in about that game's proportions), each ended by
 0xffff, one strip per cell of a 40x30 grid in a colour of its own, and checks
 every pixel against the layout. Its twelve frames vary the index count across
 2048 (1894, 2047, 2049, 2138, 4096), the offsets, the strip shape (all quads,

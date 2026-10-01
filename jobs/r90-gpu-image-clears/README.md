@@ -4,7 +4,7 @@ LRPS2's hardware renderer clears its render targets and its D32_SFLOAT_S8_UINT
 depth with vkCmdClearColorImage and vkCmdClearDepthStencilImage, outside a
 render pass, every frame. Both were the CPU's: a clear wrote every texel through
 the image's map at a submission split point, and each split point waited for the
-GPU to drain. At 6x (2880x2160) that held God of War II's demo to 70-78% with
+GPU to drain. At 6x (2880x2160) that held a PS2 demo to 70-78% with
 MTVU on.
 
 - **The clears are a draw.** An attachment of one level and one layer, cleared
@@ -66,7 +66,7 @@ storage and texel-buffer formats, targets, subpasses, multiview, subgroups, mip
 upload, depth blit, uniform indexing, an occlusion query, events and the device
 report. No GPU fault.
 
-With R90 in the RetroArch title, God of War II's demo at 6x with MTVU ran at
+With R90 in the RetroArch title, the same demo at 6x with MTVU ran at
 98-99% in every window after the boot, where it had run at 70-78%.
 
 Reproduce from the driver root:

@@ -1,6 +1,6 @@
 # R62: uniform buffers are byte ranges, not one 16-byte structure
 
-Wind Waker's 3D scenes were one flat fog colour and untextured. A debug mode in
+A GameCube game's 3D scenes were one flat fog colour and untextured. A debug mode in
 Dolphin's fog shader showed every fragment at the far end of the depth range,
 with plausible fog constants on the CPU side: the vertex shader's depth came
 out wrong. Dolphin selects each vertex's matrices by indexing uniform arrays

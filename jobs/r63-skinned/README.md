@@ -1,6 +1,6 @@
 # R63: Dolphin's skinned vertex record
 
-Wind Waker's animated characters drew with stretched polygons while the scenery
+A GameCube game's animated characters drew with stretched polygons while the scenery
 drew in place. Dolphin gives a skinned vertex a 36-byte record whose first four
 bytes are a matrix index (R8G8B8A8_UINT), with the position at offset 4, the
 normal at 16 and a texture coordinate at 28, where the scenery's records start

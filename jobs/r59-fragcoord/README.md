@@ -1,6 +1,6 @@
 # R59: gl_FragCoord's z and w in a fragment shader
 
-Wind Waker's 3D scene was one flat fog colour (../PS5_RetroArch, 2026-09-24):
+A GameCube game's 3D scene was one flat fog colour (../PS5_RetroArch, 2026-09-24):
 with Dolphin's fog disabled the geometry appeared. Dolphin's fog reads the
 fragment's depth from gl_FragCoord, and no console probe had ever read
 gl_FragCoord.z or .w, so this measures them before any fix is attempted.

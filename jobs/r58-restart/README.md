@@ -1,7 +1,7 @@
 # R58: primitive restart on indexed triangle strips
 
 Dolphin's Vulkan backend draws its strips with primitiveRestartEnable, and the
-driver refused every such pipeline, 101 of them in Wind Waker's first 30
+driver refused every such pipeline, 101 of them in a GameCube game's first 30
 seconds (../PS5_RetroArch, 2026-09-24). Primitive restart is core Vulkan 1.0 for
 strip topologies.
 

@@ -1,6 +1,6 @@
 # R71: dual-source blending
 
-Resident Evil 4 drew its whole frame in its haze colour: the characters as flat
+A GameCube game drew its whole frame in its haze colour: the characters as flat
 silhouettes, only a bush and the HUD correct. A FIFO log of the scene recorded
 on the console plays correctly in desktop Dolphin, so the commands were right;
 desktop Dolphin reproduces the console's frame exactly with its Vulkan backend's
@@ -24,7 +24,7 @@ SPI_SHADER_COL_FORMAT 0x44 (FP16 for MRT0 and MRT1).
 
 Console: PID 630, r71-dual-source PASS -- all 8294400 pixels 0xff88586c, maximum
 channel error 0 -- with m2-solid, v0-blend-constant, m4-blend and c4-rtt in the
-same run. Resident Evil 4 from its save state draws Leon, the car and the forest
+same run. The game from its save state draws its characters and scenery
 as desktop Dolphin does, at full speed.
 
 Host gate: driver/tests/vk_b6_pipeline_test.c builds the r71-dual-source pipeline

@@ -2,7 +2,7 @@
 
 Dolphin samples every texture with sampler2DArray through a one-layer
 2D_ARRAY view, and the driver describes such a view as a plain 2D image (its
-array flag follows the layer count). I suspected that for Wind Waker's missing
+array flag follows the layer count). I suspected that for a GameCube game's missing
 textures and measured it before changing anything: it is correct.
 
 The probe draws the v0-array set's two bands (layer coordinates 0 and 1) over a

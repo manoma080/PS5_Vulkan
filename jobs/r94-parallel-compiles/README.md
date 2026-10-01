@@ -31,7 +31,7 @@ parallel compile's code is byte for byte the serial compile's (direct build). On
 the PC the parallel batch ran at 0.4-0.6 ms a compile against 1.8-1.9 ms alone.
 `tools/check-driver.sh` PASS.
 
-On the console (RetroArch title 47dbc031, Dolphin's Rogue Leader from boot, Async
+On the console (RetroArch title 47dbc031, Dolphin with a GameCube game from boot, Async
 UberShaders, 6x, 16x AF, GPU texture decoding, each driver starting from an empty
 shader cache): the first 10 s window 82% against 77% on the previous driver
 (title 870bd1bb), the worst frames 232/127/194 ms against 267/144/188 ms. The

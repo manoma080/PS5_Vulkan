@@ -110,8 +110,8 @@ What stands on the console (2026-10-01, PS5 Mesa `0b2d6d1`):
   commands on a 1.1 instance.
 - **ProsperoEden's Vulkan renderer runs on RADV.** In my experimental fork of
   [ProsperoEden](https://github.com/blackbearreloaded/ProsperoEden), the PS5
-  port of the Eden emulator, which I use to benchmark this driver, Mario Kart 8
-  Deluxe (docked) holds 60 fps at 4K with the GPU about 19% busy, and mostly
+  port of the Eden emulator, which I use to benchmark this driver, the tested
+  game (docked) holds 60 fps at 4K with the GPU about 19% busy, and mostly
   holds 60 at 8K with the GPU about 55% busy.
 - **Submissions cost the submitting thread less.** The suspend point that
   makes the console start a submission on time used to hold the submitting
@@ -276,8 +276,8 @@ drivers rely on, and the vkQuake and RetroArch work done on it.
   fault. The vkQuake port uses compatible paths instead of requiring these
   kernels to compile.
 - ✅ **A hardware-rendered emulator works.** PPSSPP, as a RetroArch core, runs
-  God of War: Ghost of Sparta and Yu-Gi-Oh! GX Tag Force at 10× internal
-  resolution (4800×2720) with 16× anisotropy, at full speed on a 120 Hz display.
+  the tested games at 10× internal resolution (4800×2720) with 16× anisotropy,
+  at full speed on a 120 Hz display.
   What it needed is general driver work, not PPSSPP cases: every draw restates
   the context registers that persist between draws (target mask, blend, colour
   control, clip and rasteriser mode); a device-local memory type beside the
@@ -313,7 +313,7 @@ drivers rely on, and the vkQuake and RetroArch work done on it.
 | Rung 1.1–1.4 | ps5vk: one commit a rung, each gated by a CTS subset | superseded by RADV |
 | RADV | Mesa's RADV on a PS5 winsys, Vulkan 1.4, the full CTS on the console | 🔄 second full CTS run with no failure; targeted reruns before the next one; vkQuake and RetroArch ship on it, ProsperoEden runs on it |
 | Phase E1 | CTS-style semantic validation against the advertised set | ❌ recipe written |
-| Real applications | RetroArch ✅ (ps5vk, and RADV since v0.5.0-alpha.5; v0.5.6-alpha.5 current) · PPSSPP, Dolphin, LRPS2, Beetle PSX HW, ParaLLEl-RDP and Azahar (hardware-rendered) ✅ tested games · vkQuake at up to 120 FPS at 4K, on RADV since 2026-09-28, acceptance 🔄 · ProsperoEden (Eden) on RADV ✅ Mario Kart 8 Deluxe at 4K60 · other frontends ❌ | 🔄 in progress |
+| Real applications | RetroArch ✅ (ps5vk, and RADV since v0.5.0-alpha.5; v0.5.6-alpha.5 current) · PPSSPP, Dolphin, LRPS2, Beetle PSX HW, ParaLLEl-RDP and Azahar (hardware-rendered) ✅ tested games · vkQuake at up to 120 FPS at 4K, on RADV since 2026-09-28, acceptance 🔄 · ProsperoEden (Eden) on RADV ✅ the tested game at 4K60 · other frontends ❌ | 🔄 in progress |
 
 ## vkQuake and performance
 

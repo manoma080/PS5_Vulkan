@@ -1,8 +1,8 @@
 # R92: the output modes VideoOut takes
 
 A PAL game runs at 50 fps, which neither 59.94 Hz nor 119.88 Hz divides: on the
-title's 119.88 Hz output its frames alternate two and three refreshes (FFX's
-demo presents at 50 Hz, docs/PHASE_LOG.md in the RetroArch title). The driver
+title's 119.88 Hz output its frames alternate two and three refreshes (a PAL
+PS2 demo presents at 50 Hz, docs/PHASE_LOG.md in the RetroArch title). The driver
 knows two output mode selectors, 15 (119.88 Hz, from the public ps5-opengl
 runtime, R51) and 1 (the default back). This round asks whether VideoOut has
 another, a 50 or 100 Hz output in particular.

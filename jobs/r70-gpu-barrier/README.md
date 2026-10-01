@@ -4,7 +4,7 @@ A draw that samples an image rendered earlier in the same command buffer
 carried the colour-buffer barrier (RELEASE_MEM event 45) and split the
 submission there, because the barrier flushes but does not wait (C4). The wait
 was the CPU's: the queue submitted the words before the split, waited for their
-marker, then submitted the rest. Super Smash Bros. Melee's EFB copies split its
+marker, then submitted the rest. A GameCube game's EFB copies split its
 frames into about 105 steps a present (2.8 ms of queue time a present on my Pro,
 and a whole refresh a step on a console that starts work at the next vblank,
 R68), and every draw that sampled any image rendered anywhere earlier in the
@@ -28,7 +28,7 @@ Console: PID 614, m2-solid, c4-rtt, c4-texture and v0-subpass PASS -- c4-rtt is
 the case whose barrier-without-wait read the image's last rows as zero before
 C4's split (36006-40661 pixels, pids 143-145), and reads every texel now. PID 615
 re-captured golden/c4-rtt as one submission (18 packets, the barrier included);
-the host replay matches it. In Dolphin, Melee's steps a present fell from 105.8
+the host replay matches it. In Dolphin, that game's steps a present fell from 105.8
 to 0.07 and its queue time from 2.8 ms to 0.19 ms a present.
 
 Host gate: driver/tests/vk_c4_rtt_test.c asserts one step whose barrier

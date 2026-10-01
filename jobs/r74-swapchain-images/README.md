@@ -4,7 +4,7 @@ A swapchain had three images whatever minImageCount asked for. At 120 Hz,
 RetroArch's emulated swap interval of 2 presents each frame twice and fills the
 two queued flips three images allow, so the second present of every frame waited
 for a vblank on the core's thread; Dolphin's frame-stepped emulation lost 4-12%
-of Wind Waker's speed under ubershaders there. A swapchain now gets its
+of a GameCube game's speed under ubershaders there. A swapchain now gets its
 minImageCount between three and five, and VideoOut registers five framebuffers.
 
 `queue.txt` is C1's job: `c1-triangle` draws its four frames, then presents a
