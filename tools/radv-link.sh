@@ -65,6 +65,13 @@ radv_link_recipe() {
     # dEQP-VK.pipeline.*.creation_cache_control), and those exported but
     # refused to a title or faulting in it. The directory functions go
     # together: a DIR from ps5_opendir is the platform's own.
+    # localeconv in the C locale with '.' as the point (the console's reports an
+    # empty one, and nlohmann::json then dropped every fraction: SDK fork
+    # fa69d00, docs/PROBE.md there). Bound when the SDK a title pins has it, so
+    # a title on an older pin links as before.
+    if "$sdk_root/bin/llvm-nm" --defined-only "$platform" 2>/dev/null | grep -q " T ps5_localeconv$"; then
+        radv_link_flags+=("--defsym=localeconv=ps5_localeconv")
+    fi
     for name in arc4random arc4random_buf arc4random_uniform gmtime_r statvfs fstatvfs \
             futimens clock_nanosleep getaddrinfo freeaddrinfo if_nameindex if_freenameindex \
             opendir fdopendir readdir rewinddir dirfd closedir nl_langinfo nl_langinfo_l getpwuid_r \
