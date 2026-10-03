@@ -68,8 +68,12 @@ radv_link_recipe() {
     # localeconv in the C locale with '.' as the point (the console's reports an
     # empty one, and nlohmann::json then dropped every fraction: SDK fork
     # fa69d00, docs/PROBE.md there). Bound when the SDK a title pins has it, so
-    # a title on an older pin links as before.
-    if "$sdk_root/bin/llvm-nm" --defined-only "$platform" 2>/dev/null | grep -q " T ps5_localeconv$"; then
+    # a title on an older pin links as before. The listing is read whole before
+    # it is searched: piped into grep -q, llvm-nm took SIGPIPE when grep stopped
+    # at the match, and a caller's pipefail turned the found symbol into a miss
+    # about half the time once the archive grew (SDK fork adc8dd7), linking
+    # titles that read every glTF fraction as 0.
+    if grep -q " T ps5_localeconv$" <<<"$("$sdk_root/bin/llvm-nm" --defined-only "$platform" 2>/dev/null)"; then
         radv_link_flags+=("--defsym=localeconv=ps5_localeconv")
     fi
     for name in arc4random arc4random_buf arc4random_uniform gmtime_r statvfs fstatvfs \
