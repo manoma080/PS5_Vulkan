@@ -83,6 +83,20 @@ radv_link_recipe() {
             openat unlinkat fchmodat fstatat mkdirat renameat memfd_create; do
         radv_link_flags+=("--defsym=$name=ps5_$name")
     done
+    # Linked against a stub whose module gives a title nothing: strcasestr and
+    # mkstemp are defined only by libScePosixForWebKit's stub, readlink, link and
+    # symlink only by libkernel_sys's, and each import is null at run time.
+    # PS5_RetroArch's menu called strcasestr through it and jumped to address 0
+    # (its evidence/manual-scan-reentry); RADV itself imports readlink
+    # (ac_gpu_info.c) and mkstemp (aco_print_asm.cpp). Bound when the SDK a
+    # title pins has them (SDK fork ebd0fe2 and 36cfe44), as localeconv is.
+    local platform_symbols
+    platform_symbols=$("$sdk_root/bin/llvm-nm" --defined-only "$platform" 2>/dev/null || true)
+    for name in strcasestr mkstemp readlink link symlink; do
+        if grep -q " T ps5_$name$" <<<"$platform_symbols"; then
+            radv_link_flags+=("--defsym=$name=ps5_$name")
+        fi
+    done
     # A bound name the SDK's stub libraries also define would be exported from
     # the title to override theirs, and the title converter refuses exports:
     # every bound name stays local.
