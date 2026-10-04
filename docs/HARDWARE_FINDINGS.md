@@ -3769,3 +3769,23 @@ Measured from RADV's shader cache in vkQuake, from time stamps around each call:
   group 0, yet the title opens for writing a file of mode 0644 it made
   earlier: the mode bits do not predict what a title may do.
 - `/data`, where FTP sees the title's folder, does not exist for the title.
+
+## 2026-10-04 — VideoOut scales smaller buffers, holds three sets at once, and refuses buffers 15-19 (RADV)
+
+Measured through PS5_Mesa dc82d01's VideoOut WSI by PS5 RetroArch's display
+modes test, on a base PS5 (firmware 13.40) on a 1080p screen:
+
+- `sceVideoOutRegisterBuffers2` took three sets side by side, each its own
+  size and buffer indices: set 0 3840x2160 (buffers 0-4), set 1 2560x1440
+  (5-9), set 2 1920x1080 (10-14), all 64 KiB R_X B8G8R8A8. Flips named
+  buffers of whichever set, 180 frames a size at the display's 59.94 Hz
+  (2.96-3.00 s), and a 3840x2160 swapchain made again flipped set 0's buffers
+  with no new registration.
+- Each size filled the screen: a white border on all four edges and the middle
+  split centred, as the console's owner saw. VideoOut scales a buffer of those
+  sizes to what the screen takes.
+- A fourth set, 1280x720 at buffers 15-19, was refused with `0x80290001`.
+  RetroArch presenting at 3840x2160 afterwards, in the same process, flickered
+  on screen with every flip reported successful; RetroArch alone did not. Which
+  limit 15-19 crossed (16 buffer indices, or three sets) is not yet measured,
+  so the WSI offers the three sizes above and no more.

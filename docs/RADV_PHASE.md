@@ -978,3 +978,26 @@ withdrawn (4,587 not supported to pass; 370 pass to not supported, all
 `api.info.unsupported_image_usage` for VK_KHR_fragment_shading_rate, which
 has_vrs has gated since 2026-09-27) and the two faults above. The layer may
 now be turned on for a title; it stays off by default in the driver.
+
+## 2026-10-04 — a display mode for each size VideoOut takes (PS5 Mesa dc82d01)
+
+The VideoOut WSI offered one 3840x2160 mode, so a title drew 4K whatever the
+screen. PS5_Mesa dc82d01 offers 3840x2160, 2560x1440 and 1920x1080 (at 59.94 Hz,
+each after a 119.88 Hz mode where that is offered), the largest first, so a title
+taking the first or the largest mode presents as before. Each size a swapchain
+uses gets its own set of five VideoOut buffers, registered the first time and
+kept; a surface's capabilities and the plane's extents are its mode's.
+
+Host model: the CTS's display cases are unchanged (dEQP-VK.wsi.display*: 11
+pass, 5 not supported, case for case as the fork's existing host build), and a
+program making a surface and swapchain of every mode in turn through
+oldSwapchain, and 3840x2160 again, presents on each. Console: PS5 RetroArch's display modes test (its
+evidence/display-modes/) presented each size and 3840x2160 again on a base PS5,
+each filling a 1080p screen; findings in HARDWARE_FINDINGS.md (2026-10-04). A
+first branch also offered 1280x720, whose set at buffers 15-19 VideoOut refused,
+after which RetroArch flickered; it was left out before the merge.
+
+The release archive was rebuilt at the new pin. The host clc tools under
+.deps/work had been built against LLVM 22, gone from this host since its LLVM 23
+update, so tools/build-radv.sh rebuilt them (the old build is kept beside it as
+radv-clc-build.llvm22-stale until it is deleted).
