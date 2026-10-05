@@ -230,7 +230,7 @@ s5-regress-1) failed 7, all in the rasterization copy's draw:
   its hardware topology now.
 
 s5-regress-2 (forced) and s5-default-1 (the default path): 11,721 pass, no
-failure. Merged into ps5-port (ebaf6bc).
+failure. Merged into ps5-port (8a13509).
 
 ## Open
 
@@ -242,6 +242,6 @@ failure. Merged into ps5-port (ebaf6bc).
 - **Slice 5**: done on ps5-gs-tess, above. A geometry shader's
   gl_PrimitiveIDIn after tessellation counts the tessellator's primitives
   across the draw's instances, where Vulkan resets it per instance.
-- Merged into ps5-port (ebaf6bc) with the forced and default regressions
+- Merged into ps5-port (8a13509) with the forced and default regressions
   above.
 

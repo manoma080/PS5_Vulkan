@@ -1109,7 +1109,7 @@ the resulting correction to C1's direct-only surface-refusal assertion.
 
 | Request | Result | Evidence |
 | --- | --- | --- |
-| R11/R12 actual port first frame | PASS: QueuePresent success and human sees Quake menu/console; M2 met. | Port 3c29641, PID 197, a779b2bd…, evidence/m2-first-frame |
+| R11/R12 actual port first frame | PASS: QueuePresent success and human sees Quake menu/console; M2 met. | Port 992cabf, PID 197, a779b2bd…, evidence/m2-first-frame |
 | R13 bounded upload metadata | Open: named host-memory refusal during map staging; one record per row is the source candidate. Failed EndCommandBuffer is then ignored by upstream staging and triggers submit assertion. | Same boot; host record-count/byte witness is next, no fix claimed. |
 
 
@@ -1323,7 +1323,7 @@ Next: vkQuake deployment and launch; M6 is not claimed.
 
 ## 2026-09-23 — vkQuake consumes R18; R19 is 32-bit indices
 
-Port PID 215, identity b3aecd67… (port commit 1c65915), presents after relinking
+Port PID 215, identity b3aecd67… (port commit 93ecd3f), presents after relinking
 R17/R18. The old array and padded-pitch refusals are absent. Necropolis map
 recording next refuses UINT32 indices in ps5vk_cmd_draw; EndCommandBuffer -13,
 exit 1 and the known SIGSYS path. Two final trace reads and kernel PID match,

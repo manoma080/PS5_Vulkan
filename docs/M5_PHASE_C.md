@@ -8458,7 +8458,7 @@ vkQuake and measure its own first frame. No port presentation claim yet.
 
 ## 2026-09-22 — R12 port acceptance: first visible frame, then R13 staging memory
 
-Port commit 3c29641 records PPSA99010 PID 197, identity a779b2bd…, against R12
+Port commit 992cabf records PPSA99010 PID 197, identity a779b2bd…, against R12
 c8658bf. Port's five gates and shader scan pass; 540 successful compiles,
 QueuePresent -> 0, and the human confirms a Quake menu/console frame before the
 crash. Port M2 is met; R11/R12's positive first-frame condition is closed.
@@ -8795,7 +8795,7 @@ Next: vkQuake deployment and launch; M6 is not claimed.
 
 ## 2026-09-23 — vkQuake consumes R18; R19 is 32-bit indices
 
-Port PID 215, identity b3aecd67… (port commit 1c65915), presents after relinking
+Port PID 215, identity b3aecd67… (port commit 93ecd3f), presents after relinking
 R17/R18. The old array and padded-pitch refusals are absent. Necropolis map
 recording next refuses UINT32 indices in ps5vk_cmd_draw; EndCommandBuffer -13,
 exit 1 and the known SIGSYS path. Two final trace reads and kernel PID match,

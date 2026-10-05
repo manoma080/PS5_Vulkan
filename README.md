@@ -71,7 +71,7 @@ is the round-by-round record.
   PS5 GPU
 ```
 
-What stands on the console (2026-10-01, PS5 Mesa `0b2d6d1`):
+What stands on the console (2026-10-01, PS5 Mesa `504adad`):
 
 - **The full CTS runs on the console, and its second full run had no
   failure.** The first full run of the pinned 1.4 CTS (vulkan-cts-1.4.6.2, my
@@ -84,7 +84,7 @@ What stands on the console (2026-10-01, PS5 Mesa `0b2d6d1`):
   resources, calibrated timestamps and the VideoOut swapchain, each proved by a
   targeted CTS run of the groups behind it
   ([docs/CTS_GAPS.md](docs/CTS_GAPS.md)). The second full run, full-1, on RADV
-  `ecf916d`, finished on 2026-09-29: of 2,919,757 cases, **1,569,390 pass,
+  `6824f49`, finished on 2026-09-29: of 2,919,757 cases, **1,569,390 pass,
   0 fail**, 1,350,306 are not supported and 60 are quality warnings (one more
   case is recorded as a crash because I closed the CTS title mid-batch).
   Before any further full run, those 61 cases get a targeted rerun, and each
@@ -101,7 +101,7 @@ What stands on the console (2026-10-01, PS5 Mesa `0b2d6d1`):
   first frame, is still open.
 - **RetroArch ships on RADV.** [PS5 RetroArch](https://github.com/mihawk-99/PS5_RetroArch)
   moved to RADV with v0.5.0-alpha.5 (2026-09-28). Its current release,
-  v0.5.6-alpha.5 (2026-10-01), links PS5 Mesa `0b2d6d1` and carries 15 cores.
+  v0.5.6-alpha.5 (2026-10-01), links PS5 Mesa `504adad` and carries 15 cores.
   Six of them render through Vulkan on RADV: PPSSPP, Dolphin, LRPS2, Beetle
   PSX HW, Mupen64Plus-Next (ParaLLEl-RDP) and Azahar, at up to 18× internal
   resolution. Before the release, every core ran its game on the release
@@ -120,13 +120,13 @@ What stands on the console (2026-10-01, PS5 Mesa `0b2d6d1`):
   glTF loading, mipmaps made with blits, PBR with image based lighting, shadow
   mapping, deferred shading, bloom, MSAA, instancing, indirect draws, compute
   particles, bindless textures, dynamic rendering, ImGui, mesh shaders and ray
-  queries. On 2026-10-01, on PS5 Mesa `0b2d6d1`, each held 119.9 fps at 3840x2160
+  queries. On 2026-10-01, on PS5 Mesa `504adad`, each held 119.9 fps at 3840x2160
   over a 300-frame test run, and its last frame matched the same frame drawn by the
   PC's driver (Intel ANV) within 4.5 levels in 255. A test run of every sample
   belongs beside the CTS after a RADV change. Its first run found a platform gap,
   not a driver bug: the console's `localeconv()` gives an empty decimal point, and
   tinygltf's JSON parser read material colours of 0.62 as 0. The payload SDK fork's
-  platform layer now has a C-locale `localeconv` (fa69d00), which
+  platform layer now has a C-locale `localeconv` (6b63a2a), which
   `tools/radv-link.sh` binds for a title whose SDK pin has it.
 - **Submissions cost the submitting thread less.** The suspend point that
   makes the console start a submission on time used to hold the submitting

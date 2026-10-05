@@ -67,11 +67,11 @@ radv_link_recipe() {
     # together: a DIR from ps5_opendir is the platform's own.
     # localeconv in the C locale with '.' as the point (the console's reports an
     # empty one, and nlohmann::json then dropped every fraction: SDK fork
-    # fa69d00, docs/PROBE.md there). Bound when the SDK a title pins has it, so
+    # 6b63a2a, docs/PROBE.md there). Bound when the SDK a title pins has it, so
     # a title on an older pin links as before. The listing is read whole before
     # it is searched: piped into grep -q, llvm-nm took SIGPIPE when grep stopped
     # at the match, and a caller's pipefail turned the found symbol into a miss
-    # about half the time once the archive grew (SDK fork adc8dd7), linking
+    # about half the time once the archive grew (SDK fork 611893f), linking
     # titles that read every glTF fraction as 0.
     if grep -q " T ps5_localeconv$" <<<"$("$sdk_root/bin/llvm-nm" --defined-only "$platform" 2>/dev/null)"; then
         radv_link_flags+=("--defsym=localeconv=ps5_localeconv")
@@ -89,7 +89,7 @@ radv_link_recipe() {
     # PS5_RetroArch's menu called strcasestr through it and jumped to address 0
     # (its evidence/manual-scan-reentry); RADV itself imports readlink
     # (ac_gpu_info.c) and mkstemp (aco_print_asm.cpp). Bound when the SDK a
-    # title pins has them (SDK fork ebd0fe2 and 36cfe44), as localeconv is.
+    # title pins has them (SDK fork 5d14e81 and 24b2bb9), as localeconv is.
     local platform_symbols
     platform_symbols=$("$sdk_root/bin/llvm-nm" --defined-only "$platform" 2>/dev/null || true)
     for name in strcasestr mkstemp readlink link symlink; do

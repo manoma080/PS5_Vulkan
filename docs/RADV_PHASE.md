@@ -135,7 +135,7 @@ main-1's next groups turned up three problems, and the runner a fourth.
    console's `localeconv()` reports an empty decimal point while its `strtod`
    reads '.', and the platform's C-locale `strtof_l` spliced the empty point
    in place of '.'. Fixed in the shared platform layer (PS5_PayloadSDK
-   9cf8084, its PROBE.md records the measurement). Found by comparing
+   1d81bd9, its PROBE.md records the measurement). Found by comparing
    `NIR_DEBUG=print_fs` on the host and on the console pass by pass: the
    first difference was the SPIR-V constants.
 2. **No device-generated commands.** The console cannot run a command buffer
@@ -218,7 +218,7 @@ read), run while the driver still reported the extension: at 2x2 the fragment
 shader ran once a texel and read 1x1 (HARDWARE_FINDINGS.md).
 `radeon_info.has_vrs` now gates VK_KHR_fragment_shading_rate, its features,
 the mesh shader's primitive rate and RADV_FORCE_VRS; the PS5 GPU description
-clears it (Mesa fork 39e0a54). The smoke title skips the check when the
+clears it (Mesa fork e307009). The smoke title skips the check when the
 extension is not reported (59 of 59 pass).
 
 Tooling: `tools/build-radv.sh` moves to a new pinned revision by content, so
@@ -240,7 +240,7 @@ api.info, api.device_init and api.feature_info pass or are not supported
   buffer at a requested address and refused every replay address, yet
   bufferDeviceAddressCaptureReplay was reported: all 723 replay cases of
   binding_model.buffer_device_address failed. `radeon_info.has_replayable_va`
-  now gates every capture and replay feature (Mesa fork 2f26f3a); the replay
+  now gates every capture and replay feature (Mesa fork ad8458e); the replay
   cases report it unsupported and the info checks pass (run replay-1).
 - **Separately compiled geometry shaders work.** Rerun on the current driver,
   every shader_object case main-1 had recorded as failing (the link cases
@@ -273,12 +273,12 @@ strlen. The IR was missing because the platform's open_memstream was an ENOSYS
 stub. Three fixes, each general:
 
 - RADV counts only the representations it has and never reads a missing one
-  (Mesa fork 0210fab).
+  (Mesa fork 62f2b60).
 - The shared platform layer has a real open_memstream: libc's FILE on a pipe,
   drained by a reader thread and published through fflush and fclose wraps
-  (PS5_PayloadSDK 2facde3; its PROBE.md has the measurement). The RADV link
+  (PS5_PayloadSDK 8400d86; its PROBE.md has the measurement). The RADV link
   recipe wraps both.
-- The SDK install moves a new revision into place by content (8f5341f), so a
+- The SDK install moves a new revision into place by content (a9641e3), so a
   one-file platform change no longer rebuilds the whole CTS.
 
 All 42 dEQP-VK.pipeline.*.executable_properties cases pass (run execprops-3).
@@ -293,7 +293,7 @@ All 42 dEQP-VK.pipeline.*.executable_properties cases pass (run execprops-3).
   All 20 creation_cache_control cases pass.
 - **The implicit primitive ID** read 0 behind an NGG vertex shader
   (HARDWARE_FINDINGS.md): it goes per vertex now where NGG has no
-  per-primitive parameters (Mesa fork 3057cb5). The smoke title checks it
+  per-primitive parameters (Mesa fork 458250f). The smoke title checks it
   (62 of 62 pass) and all 14 misc.implicit_primitive_id cases pass.
 - Open, from main-1's pipeline group: VK_EXT_sample_locations, whose
   verify_location cases fail for custom and standard locations alike in every
@@ -389,7 +389,7 @@ around for gfx1010-gfx1013) exist on this shader core. The second matters most,
 because a missing workaround corrupts rarely and depending on data. ACO stays
 on gfx1030 without dot products until two shader probes answer those.
 
-**Merge order.** main-1 measures the pinned revision (3057cb5), which both
+**Merge order.** main-1 measures the pinned revision (458250f), which both
 branches are compared against, so neither merges before it ends. The branches
 touch no common file.
 
@@ -425,7 +425,7 @@ caused, is in [CTS_GAPS.md](CTS_GAPS.md).
 1. **Seven failures had already been fixed.** The six
    descriptor_indexing.*_minNonUniform cases and
    rasterization.culling.primitive_id failed at 01:11 and 01:27, on builds
-   from before the fixes made during main-1, and pass on 3057cb5
+   from before the fixes made during main-1, and pass on 458250f
    (triage-untriaged-1). The minNonUniform shaders compile to the same
    waterfall loop as upstream's for Navi21 (host builds of both, compared).
 2. **Conditional capture from a geometry shader.** The nine
@@ -444,7 +444,7 @@ caused, is in [CTS_GAPS.md](CTS_GAPS.md).
 4. **memfd_create.** The 8 placed-mapping cases that need two views of one
    memory object were not supported because the console's libc has no
    memfd_create. The platform layer now builds it as FreeBSD 13 does, on
-   libkernel's anonymous shared memory objects (SDK fork 71f2494, host tests
+   libkernel's anonymous shared memory objects (SDK fork a5cbafe, host tests
    185 of 185); the console proof comes with ps5-gaps' placed mappings.
 5. **Asynchronous compute: what the public sources say.** Mesa keeps
    GFX1013's compute queue off as broken. A public BC-250 project traces that
@@ -472,7 +472,7 @@ ps5-port now carries, in this order: the ray traversal fix, geometry shaders
 as compute (with b26797e, the push constants of the rasterization copy),
 placed maps with the honest queue and conformance reports, acceleration
 structures and ray queries reported by default (their gate was rq-full-1),
-and the traits consolidation (c40a45e), whose one conflict, the ray tracing
+and the traits consolidation (d42b81c), whose one conflict, the ray tracing
 line it replaced, resolves to reporting the BVH instruction. The host-model
 profile of that tip differs from the one without the traits only in the
 build-derived UUIDs. The CTS title links the main checkout's build, so the
@@ -484,7 +484,7 @@ revision, since poly's kernels need them.
 ## 2026-09-27 — ray tracing pipelines, capture and replay, sparse, calibrated timestamps
 
 Four gaps in [CTS_GAPS.md](CTS_GAPS.md), each built on its own branch and
-measured by a targeted run, then brought into ps5-port (7848a74):
+measured by a targeted run, then brought into ps5-port (2ae4551):
 
 1. **Ray tracing pipelines.** ACO's calls through the scratch buffer (as on
    GFX6-8) where a shader cannot set FLAT_SCRATCH, on top of the traversal
@@ -542,13 +542,13 @@ winsys ignored the flag for a sparse range, which sat in the device-memory
 region: the shaders read their descriptors from the window at the same low
 bits, and the acceleration structure pointers read there faulted. A sparse
 range with that flag is now a reservation in the window, where the kernel
-places one given no address (PS5_Mesa 400560e).
+places one given no address (PS5_Mesa 472a984).
 
 The 22 compute cases left crashed in Mesa's runtime: the dedicated sparse
 queue family enables a submit thread, which the runtime has only with native
 timelines, and the winsys builds timeline semaphores over its binary sync
 type. RADV now offers that family only when the winsys's own sync type is the
-timeline; sparse binding stays on the one graphics family (a6bdf1a).
+timeline; sparse binding stays on the one graphics family (6a3962b).
 sparse-db-1 and sparse-db-2 (the 427 cases of the sparse descriptor buffer
 groups sampled): all pass or are not supported.
 
@@ -560,7 +560,7 @@ upstream fixed the test after 1.4.6.2 (VK-GL-CTS c8ff9475c5, issue 6446; not
 on the 1.4.6 release branch). The CTS fork carries the fix (4615d988e2) and
 the case passes (sparse-db-1).
 
-merged-1 resumed on a6bdf1a and CTS 4615d988e2 from case 144,298.
+merged-1 resumed on 6a3962b and CTS 4615d988e2 from case 144,298.
 
 Past batch 11, merged-1 crashed on every
 dEQP-VK.subgroups.ballot_broadcast.ray_tracing case with the widest types
@@ -572,24 +572,24 @@ descriptor's base, by the spill area and back. ACO restored it by adding the
 negative offset with s_addc_u32, whose carry means nothing was borrowed,
 and then subtracted that carry from the high word as a borrow: every
 restore moved the base down 4 GiB. It now adds -1 plus the carry (PS5_Mesa
-8b2a6d9). rt-spill-1, all 1,431 subgroups ray tracing cases: 1,018 pass,
-413 not supported, none fail. merged-1 resumed on 8b2a6d9.
+8014f67). rt-spill-1, all 1,431 subgroups ray tracing cases: 1,018 pass,
+413 not supported, none fail. merged-1 resumed on 8014f67.
 
 The host CTS (PS5_VK-GL-CTS/build-host, vulkan_headless) now runs against
 the host model, which executes nothing but compiles every pipeline and
 records every command: crashes and asserts in those paths show there before
 a console run. The Vulkan loader unloads and reloads the driver between the
 CTS's instances, which left the model's address window reserved by the
-first load; the window now goes with the library (5e2849a).
+first load; the window now goes with the library (30fcf1b).
 
 The headless WSI cases then crashed: Mesa's headless swapchain gave any
 driver but a software one DRM images, which exist only with libdrm, so
-get_blit_type asserted (PS5_Mesa 5f016bf: CPU images and a blit to a host
+get_blit_type asserted (PS5_Mesa a562e46: CPU images and a blit to a host
 buffer without libdrm), and RADV put that blit on a private SDMA queue on
-every GFX9+ GPU, which asserted without SDMA (8dfaa00: the presenting queue
+every GFX9+ GPU, which asserted without SDMA (40834f2: the presenting queue
 blits). headless-2, 85 of the headless cases: 3 pass, 82 not supported for
 what Mesa's headless surface offers (present modes, scaling, transforms,
-present timing), as upstream. merged-1 resumed on 8dfaa00.
+present timing), as upstream. merged-1 resumed on 40834f2.
 
 merged-1 ended with 311,927 cases: 211,504 pass, 100,327 not supported, 11
 quality warnings (placed maps' missing /proc/self/maps, two pipeline
@@ -616,12 +616,12 @@ fixed.
 
 Merged into ps5-port after their gates, each with no failure:
 
-- ps5-queues (506ec2f): a compute and transfer family on the graphics ring.
+- ps5-queues (08965df): a compute and transfer family on the graphics ring.
   queues-gate-1, 25,318 cases: 20,390 pass.
-- ps5-memtypes (20fe8ae): an integrated GPU's memory with host-cached types,
+- ps5-memtypes (6c28a5e): an integrated GPU's memory with host-cached types,
   and host pointer imports. memtypes-gate-1, 50,014 cases: 44,993 pass, 8
   quality warnings.
-- ps5-gs-tess (ebaf6bc): slice 5 with two fixes to the rasterization copy's
+- ps5-gs-tess (8a13509): slice 5 with two fixes to the rasterization copy's
   draw (RADV_GS_COMPUTE.md). s5-regress-2 (every geometry shader as compute)
   and s5-default-1, 13,455 cases each: 11,721 pass.
 
@@ -640,13 +640,13 @@ parts, an atomic's result that decides outputs is undefined in the parts
 after the first.
 
 VK_KHR_display on VideoOut (ps5-wsi, with the platform layer's
-ps5platform/videoout.h in PS5_PayloadSDK 2f27d3b): the smoke title's display
+ps5platform/videoout.h in PS5_PayloadSDK 9180463): the smoke title's display
 check passes (92 of 92 checks with it): 60 frames presented at the display's
 pace and a replaced swapchain.
 
 ## 2026-09-27 — vkQuake runs on RADV
 
-With the VideoOut swapchain merged (ps5-port 7e30f3e), vkQuake links RADV
+With the VideoOut swapchain merged (ps5-port 45d9d6f), vkQuake links RADV
 (PS5_vkQuake's `radv` branch, PS5_VULKAN_DRIVER=radv, through
 tools/radv-link.sh) and runs its demo loop on the console at 119.88 fps in
 every steady window, one vblank a frame, taking the 120 Hz mode the title
@@ -656,7 +656,7 @@ put back to the ps5vk build afterwards.
 
 ## 2026-09-28 — vkQuake ships on RADV
 
-`tools/build-radv.sh` pins the fork's ps5-port at 7e30f3e (the VideoOut
+`tools/build-radv.sh` pins the fork's ps5-port at 45d9d6f (the VideoOut
 swapchain merged) and gained a release variant: `tools/build-radv.sh release`
 builds the same revision with Mesa's assertions off (debugoptimized,
 b_ndebug=true) into .deps/native/radv-release, in 81 s from a fresh tree; the
@@ -694,7 +694,7 @@ from an atomic and paint their cell in its colour with 128 triangles, which go
 out in two parts. On the console, one draw and a pair of indirect draws both
 show every workgroup running once and every cell one ticket (1,024 workgroups
 go round the ring's 256 slots four times). mesh-port-1 on the merge
-(ps5-port b381f60): the 10,650 mesh cases without a task shader, 733 pass and
+(ps5-port 528835a): the 10,650 mesh cases without a task shader, 733 pass and
 no failure, with mesh reported by default. The smoke title: 96 of 96.
 
 One trap on the way: poly's library functions are serialized NIR made at
@@ -705,11 +705,11 @@ tools/build-radv.sh builds its host tools from the pinned revision, so its
 archives are consistent; development build trees must be configured with tools
 from their own tree.
 
-Mesh shaders were reported by default for one merge (b381f60), and the
+Mesh shaders were reported by default for one merge (528835a), and the
 targeted rerun of every case main-1 and merged-1 did not pass
 (final-targets-1) failed dEQP-VK.info.device_mandatory_features at once:
 VK_EXT_mesh_shader requires taskShader as well as meshShader. So mesh shaders
-went back behind RADV_PS5_MESH (ps5-port b0a175c) until task shaders run; the
+went back behind RADV_PS5_MESH (ps5-port 07e90fd) until task shaders run; the
 publish ring and the draw records stay, as task shaders will need them.
 
 ## 2026-09-28 — task shaders on the graphics ring
@@ -746,12 +746,12 @@ The CTS on it: taskmesh-1 ran every main-1 case naming mesh or task shaders
 (83,681) with the emulation on: 23,057 pass, 12 quality warnings and no
 failure. Its four crashes were descriptor heap cases: the emulated dispatch
 emitted only the heaps still marked dirty, which the draw's own flush had
-cleared; it now emits every valid set and heap (69d7d30, task-heap-1: 4
+cleared; it now emits every valid set and heap (0be56b9, task-heap-1: 4
 pass). The same helper gave geometry shaders run as compute the dynamic
 buffers they never had (a latent bug: with every geometry shader forced
 through compute, the 960 dynamic buffer geometry cases crashed on an
 assertion, gs-dyn-before-1, and now pass, gs-dyn-after-1). Task and mesh
-shaders are reported since ps5-port 179f88d; the smoke title passes 100 of
+shaders are reported since ps5-port bc9eedb; the smoke title passes 100 of
 100 with defaults.
 
 ## 2026-09-28 — ray tracing group handles captured and replayed
@@ -763,7 +763,7 @@ group handles capture whole shader arenas, which must lie in the shaders'
 be taken by the time it is replayed. The PS5 winsys now reserves the top
 256 MiB of the window at initialisation and places the replayable window
 buffers there itself, captures from the top down and replays at their
-captured addresses (ps5-port ecf916d). rt-replay-1: the 165 cases of
+captured addresses (ps5-port 6824f49). rt-replay-1: the 165 cases of
 merged-1 that asked for it pass; 17 need acceleration structure host
 commands or mixed capture and replay, which upstream does not offer on this
 GPU either. What upstream reports and the port does not is now all hardware
@@ -777,10 +777,10 @@ display control).
 RADV keeps its compiled pipelines on the console, as ps5vk keeps its
 shaders: Mesa's disk cache in its database form, in
 `/app0/radv-shader-cache` unless a title sets MESA_SHADER_CACHE_DIR or
-MESA_DISK_CACHE_DATABASE itself (ps5-port 7261b06, 884f954). The archives
+MESA_DISK_CACHE_DATABASE itself (ps5-port a33b574, 035a22b). The archives
 take zlib from Mesa's subproject whole, since a title links one archive, and
 the platform layer gained getpwuid_r and posix_fallocate, which the cache
-calls (PS5_PayloadSDK 2823efe). A build's cache entries are keyed by the
+calls (PS5_PayloadSDK d4fa6d7). A build's cache entries are keyed by the
 pinned revision (`-Dradv-build-id`), so a new pin never reads an old
 build's binaries.
 
@@ -801,12 +801,12 @@ an empty cache; profiling it on the console found two causes:
 Profiling also showed that a title's sandbox refuses access() for every
 path, existing or not (EPERM), while stat() answers. The cache now asks
 stat() whether a part exists. The platform layer's ps5_access (PS5_PayloadSDK
-489467e) answers from stat() and open(), and tools/radv-link.sh binds
+32f28fd) answers from stat() and open(), and tools/radv-link.sh binds
 access to it, for Mesa's own callers (the Vulkan trace trigger and file
 notification). The smoke test checks it and the cache folder's mode on the
 console.
 
-vkQuake, release archive at 884f954: first present 3.83 s after start from an
+vkQuake, release archive at 035a22b: first present 3.83 s after start from an
 empty cache (pipelines 0.96 s, against 0.62 s with no cache at all), 2.71 s
 with it filled (pipelines 0.14 s), and the demo loop at 119.88 fps. The
 installed title is that build. Shipping a harvested cache with a title, as
@@ -815,7 +815,7 @@ ps5vk does, is open, as is the device and swapchain start-up (about 2.5 s).
 ## 2026-09-28 — RetroArch runs on RADV
 
 The first console runs of PS5_RetroArch's `radv` branch (release archive at
-884f954, each launched from args.txt with a capture at a fixed frame): the
+035a22b, each launched from args.txt with a capture at a fixed frame): the
 menu renders; PPSSPP's God of War: Ghost of Sparta, Dolphin's Wind Waker and
 LRPS2's GTA San Andreas reach their title screens with every 10 s audio
 window full after boot (LRPS2: two late windows at 99.8% and 98.9%, where
@@ -823,7 +823,7 @@ ps5vk's run of the same content had one at 99.4%). The PPSSPP and LRPS2
 pictures match ps5vk's. PPSSPP first faulted on a null vkCreateRenderPass2:
 it took the device's 1.4 as usable on RetroArch's 1.1 instance, and RADV
 returns null for a core command above the instance's version, as it must;
-the fix is PPSSPP's (PS5_RetroArch 15ea4b2), not the driver's. Open before
+the fix is PPSSPP's (PS5_RetroArch b4f4974), not the driver's. Open before
 the cores leave ps5vk: pipeline compiles cost PPSSPP 0.7% of one window
 with an empty shader cache, and RetroArch's release battery (every core,
 menu actions, closing and reopening content, a PPSSPP soak) has not run on
@@ -832,7 +832,7 @@ RADV.
 ## 2026-09-28 — RetroArch's release battery passes on RADV
 
 The checks RetroArch's release passed on ps5vk, on RADV (PS5_RetroArch
-13f1961). Every core with a game (FCEUmm, snes9x, mGBA, Genesis Plus GX,
+d0115bc). Every core with a game (FCEUmm, snes9x, mGBA, Genesis Plus GX,
 FBNeo, PPSSPP, Dolphin, LRPS2), threaded video on for half of them: a pad
 script opened and closed the menu, closed the content through the Quick
 Menu and loaded it again, three driver initialisations a run. PPSSPP ran ten
@@ -853,10 +853,10 @@ over every allocation doubled PPSSPP's time a pipeline at eight threads
 (19.6 ms median against 9.3), and both heaps the titles use were one locked
 dlmalloc mspace.
 
-PS5_PayloadSDK 714a6fc and 95c08f2 give the title heap up to eight arenas,
+PS5_PayloadSDK 0c374e8 and b83202b give the title heap up to eight arenas,
 one for each allocating thread, a block going back to its own from any
 thread, and offer it without its wraps; the RetroArch title's overflow heap
-is that heap now (PS5_RetroArch 2d73b42). PPSSPP's compiles from an empty cache
+is that heap now (PS5_RetroArch 92466b4). PPSSPP's compiles from an empty cache
 on the console: 5,480 ms to 2,043 ms, median 37.4 ms to 17.4 ms, and its
 windows after boot are full. vkQuake's start-up is unchanged (its pipelines
 compile on fewer threads), the smoke test passes 102 of 102, and RetroArch's
@@ -869,7 +869,7 @@ With the cache filled, PPSSPP's pipelines still took a median 11.3 ms each.
 Timed on the console, a read of the cache's database spent 4.8 ms waiting
 for the part's lock behind other threads' reads, 1.6 ms reopening and
 relocking the files and 0.6 ms writing the entry's access time back, against
-0.01 ms reading the entry. ps5-port cedb774 adds an exclusive mode to Mesa's
+0.01 ms reading the entry. ps5-port 2d1a8cf adds an exclusive mode to Mesa's
 database, the default on the PS5, where a title's cache is its own: each part
 is opened and locked once, accesses skip the reopening, relocking and
 rereading, and access times are written in batches. A first version made
@@ -888,7 +888,7 @@ which on the host profile is Mesa's own NIR optimisation loop.
 
 With every item in [CTS_GAPS.md](CTS_GAPS.md) closed by a targeted run, the
 second full run of the pinned CTS, full-1, started at 02:31 on the debug
-archive of ecf916d (every mustpass group main-1 ran, 2,919,757 cases in
+archive of 6824f49 (every mustpass group main-1 ran, 2,919,757 cases in
 batches of 20,000). At 560,000 cases: 228,553 pass, 331,439 not supported,
 8 quality warnings, no failure, no crash and no lost device. It is a user
 service on the host now (`systemd-run --user`), so the run outlives the
@@ -898,7 +898,7 @@ orchestrators, and each time the run resumed from its results.
 The Mesa fork's work is on its `main` branch: `ps5-port` and the feature
 branches were merged into it, and `tools/build-radv.sh` exports the pinned
 revision from there. vkQuake and PS5 RetroArch (v0.5.0-alpha.5) ship on the
-release archive of cedb774.
+release archive of 2d1a8cf.
 
 ## 2026-09-28 — full-1 interrupted once, by me
 
@@ -914,7 +914,7 @@ run resumes from the next case.
 
 ## 2026-09-29 — full-1 complete: no failure
 
-The second full run of the pinned CTS on RADV ecf916d finished at 03:25 (every
+The second full run of the pinned CTS on RADV 6824f49 finished at 03:25 (every
 mustpass group of main-1, 2,919,757 cases, 120 batches):
 
 | Result | Cases |
@@ -963,12 +963,12 @@ run done on the fixed build; batches.log names each build):
   objects the test had destroyed meanwhile, as the specification allows while
   a command buffer records (it becomes invalid). Resets, begins and frees now
   drop what is queued, and every device-level destroy and free first waits
-  for the batches handed to the worker (8c77e8b9c0d). `api.command_buffers.*`
+  for the batches handed to the worker (2dc8c542e5d). `api.command_buffers.*`
   with the layer: 128 pass, 1 not supported.
 - `api.device_init.create_instance_device_intentional_alloc_fail.basic`
   crashed: the worker's allocation failed before the shader arenas were
   initialised and radv_destroy_device walked their list. The worker now
-  starts after them (0b2d6d1a61d). `api.device_init.*` with the layer: 226
+  starts after them (504adad77f9). `api.device_init.*` with the layer: 226
   pass, 8 not supported, as without it.
 
 Against the runs without the layer: full-1's 146,645 cases of the same groups
@@ -979,10 +979,10 @@ withdrawn (4,587 not supported to pass; 370 pass to not supported, all
 has_vrs has gated since 2026-09-27) and the two faults above. The layer may
 now be turned on for a title; it stays off by default in the driver.
 
-## 2026-10-04 — a display mode for each size VideoOut takes (PS5 Mesa dc82d01)
+## 2026-10-04 — a display mode for each size VideoOut takes (PS5 Mesa 7b59ef2)
 
 The VideoOut WSI offered one 3840x2160 mode, so a title drew 4K whatever the
-screen. PS5_Mesa dc82d01 offers 3840x2160, 2560x1440 and 1920x1080 (at 59.94 Hz,
+screen. PS5_Mesa 7b59ef2 offers 3840x2160, 2560x1440 and 1920x1080 (at 59.94 Hz,
 each after a 119.88 Hz mode where that is offered), the largest first, so a title
 taking the first or the largest mode presents as before. Each size a swapchain
 uses gets its own set of five VideoOut buffers, registered the first time and

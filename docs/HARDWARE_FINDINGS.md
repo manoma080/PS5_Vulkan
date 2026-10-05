@@ -3599,7 +3599,7 @@ this probe.
 
 ## 2026-09-27 — acceleration structures build right; RADV's traversal assumed top-half addresses (RADV)
 
-Ray tracing was turned off (Mesa fork b07af11) because every acceleration
+Ray tracing was turned off (Mesa fork 658fabd) because every acceleration
 structure build faulted, and later because every ray query against a
 structure with primitives faulted in the test's shader, which was read as
 the build writing wrong contents. Neither was the console.
@@ -3772,7 +3772,7 @@ Measured from RADV's shader cache in vkQuake, from time stamps around each call:
 
 ## 2026-10-04 — VideoOut scales smaller buffers, holds three sets at once, and refuses buffers 15-19 (RADV)
 
-Measured through PS5_Mesa dc82d01's VideoOut WSI by PS5 RetroArch's display
+Measured through PS5_Mesa 7b59ef2's VideoOut WSI by PS5 RetroArch's display
 modes test, on a base PS5 (firmware 13.40) on a 1080p screen:
 
 - `sceVideoOutRegisterBuffers2` took three sets side by side, each its own
