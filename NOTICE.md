@@ -129,7 +129,10 @@ LGPL-2.1-or-later. They are a license exception to the project-owned GPL code
 above. Mesa's completion packet and RADV overlays derive from MIT Mesa code.
 The optional overlay and the Zink presentation fix live in PS5_Mesa commit
 `f7ce91ac4c3697990bf89d79fdc61ae7cb98570b`; the native release archive stays
-at `7b59ef27c1b09b9671bc4153c41940c3155c3af2`.
+at `7b59ef27c1b09b9671bc4153c41940c3155c3af2`. The WGL build takes Zink from
+the next PS5_Mesa commit, `b3588f78dd7fd46fbadc7ecd487e5f14d4213e4b`, which
+fixes persistently mapped buffers on a device without host-visible
+device-local memory.
 
 The WGL build uses LLVM-MinGW `20260922-ucrt`, archive SHA-256
 `bb7bb7654b33d5aa8712acb837c963b2e0c56352560c76105270a3268c665c21`.
