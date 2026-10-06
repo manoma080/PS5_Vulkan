@@ -120,3 +120,20 @@ The BlackBear icon, selection artwork, and default selection track
 is titled `Night Drive`.
 
 No proprietary runtime module, encryption key, or game file is included.
+
+## Optional shared broker and Windows Zink frontend
+
+`tooling/gpu-broker/` and its build/check scripts were extracted from
+PS5_Proton local commit `878c1e9`, Copyright (C) 2026 Mihawk-99, and retain
+LGPL-2.1-or-later. They are a license exception to the project-owned GPL code
+above. Mesa's completion packet and RADV overlays derive from MIT Mesa code.
+The optional overlay and the Zink presentation fix live in PS5_Mesa commit
+`f7ce91ac4c3697990bf89d79fdc61ae7cb98570b`; the native release archive stays
+at `7b59ef27c1b09b9671bc4153c41940c3155c3af2`.
+
+The WGL build uses LLVM-MinGW `20260922-ucrt`, archive SHA-256
+`bb7bb7654b33d5aa8712acb837c963b2e0c56352560c76105270a3268c665c21`.
+Its LLVM tools retain Apache-2.0 WITH LLVM-exception and its MinGW-w64 inputs
+retain their upstream licenses. The verified compiler stays in ignored `.deps/`
+and is not distributed here. The Windows DLLs use Mesa's MIT license and remain
+ignored build artifacts; applications own their DLL deployment obligations.

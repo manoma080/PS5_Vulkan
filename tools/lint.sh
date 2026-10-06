@@ -33,8 +33,15 @@ for file in "${repository_files[@]}"; do
                 echo "missing the copyright line: $file" >&2
                 exit 2
             }
-            grep -Fq 'SPDX-License-Identifier: GPL-3.0-or-later' <<<"$header" || {
-                echo "missing the GPL-3.0-or-later SPDX line: $file" >&2
+            # The graphics broker was extracted from PS5_Proton and retains
+            # its LGPL license; the canonical title recipes remain GPL.
+            license=GPL-3.0-or-later
+            case "$file" in
+                tooling/gpu-broker/*|tools/build-gpu-broker-client.sh|tools/build-mesa-windows-zink.sh|tools/check-gpu-broker.sh)
+                    license=LGPL-2.1-or-later ;;
+            esac
+            grep -Fq "SPDX-License-Identifier: $license" <<<"$header" || {
+                echo "missing the $license SPDX line: $file" >&2
                 exit 2
             }
             ((checked += 1))

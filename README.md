@@ -794,3 +794,12 @@ Built on the work of the [ps5-payload-dev](https://github.com/ps5-payload-dev)
 community, [ps5-opengl](https://github.com/blackbearreloaded/ps5-opengl), and
 the [Mesa](https://gitlab.freedesktop.org/mesa/mesa) and
 [LLVM](https://github.com/llvm/llvm-project) projects. Thank you.
+
+## Optional graphics broker and Zink
+
+The shared [GPU broker](tooling/gpu-broker/README.md) provides an owner/client
+backend for native subprocess graphics. Its optional Windows WGL/Zink recipe
+builds OpenGL over Vulkan; Wine integration remains in the consuming title.
+The ordinary title backend is unchanged. See the broker guide for pinned
+inputs, build commands and the boundary between prior console evidence and
+unqualified extracted builds.

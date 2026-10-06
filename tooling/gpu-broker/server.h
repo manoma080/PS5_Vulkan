@@ -1,0 +1,19 @@
+/* Copyright (C) 2026 Mihawk-99 */
+/* SPDX-License-Identifier: LGPL-2.1-or-later */
+#ifndef PS5_GPU_SERVER_H
+#define PS5_GPU_SERVER_H
+#include <stdio.h>
+/* One owning title, trusted clients, 32 slots. directory holds logs/captures.
+ * is_absent(token) MUST prove the native client has ended, not merely EOF.
+ * close takes an opaque application lifecycle token; zero means no child was
+ * started. The application owns spawning and process termination. */
+bool ps5_gpu_broker_start(const char *directory,bool capture,bool local,bool (*is_absent)(int));
+int ps5_gpu_broker_open(int *cookie);
+void ps5_gpu_broker_close(int cookie,int lifecycle_token);
+bool ps5_gpu_broker_stop();
+bool ps5_gpu_broker_warm(FILE *output);
+void ps5_gpu_broker_set_desktop(int (*foreground)(),void (*cursor)(int *,int *));
+/* attach consumes fd. Frame-page format is frame_page.h. */
+void ps5_gpu_broker_frame_attach(int pid,int fd);
+void ps5_gpu_broker_frame_detach(int pid);
+#endif
