@@ -6,7 +6,6 @@
 #include "completion.h"
 #include "display.h"
 
-
 #include <pthread.h>
 
 extern "C" {
@@ -16,9 +15,6 @@ extern "C" {
 #include "packet_io.h"
 #include <ps5platform/kernel.h>
 #include <ps5platform/agc.h>
-
-
-
 
 int sceKernelUsleep(unsigned);
 }
@@ -191,7 +187,8 @@ void reset(Client &c)
 bool (*client_absent)(int)=nullptr;
 bool absent(int token) { return client_absent && client_absent(token); }
 std::string output_directory;
-std::string output_path(const char *path) { return output_directory+"/"+(strrchr(path,'/')+1); }
+std::string output_path(const char *path)
+{ const char *slash=strrchr(path,'/');return output_directory+"/"+(slash ? slash+1 : path); }
 [[noreturn]] void retain(FILE *out,const char *reason)
 {
     fprintf(out,"gpu-broker unsafe_to_close=1 reason=%s\n",reason);fsync(fileno(out));
@@ -460,7 +457,6 @@ int submit(Client &c,const PwGpuMessage &m,FILE *out,unsigned client)
     return 0;
 }
 }
-
 
 namespace {
 struct Broker {
